@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASHFALL — Warlock Arena</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app"></div>
+  <div class="frame"><span>ASHFALL <small>/ WARLOCK ARENA</small></span><span>01 / THE CRUCIBLE</span></div>
+  <div id="hud" hidden>
+    <div class="stats"><span id="round"></span><span id="alive"></span><span id="gold"></span></div>
+    <div class="vitals"><small>ЖИЗНЕННАЯ СИЛА</small><strong id="hp-text"></strong><div class="hp-track"><div id="hp-fill"></div></div><div class="minor"><span id="damage-points"></span><span id="arena-size"></span></div></div>
+    <div id="spellbar"></div>
+    <div id="crosshair">+</div><div id="feed"></div>
+    <div class="controls-foot">WASD движение · Мышь обзор · ЛКМ огонь · SPACE прыжок · ESC пауза</div>
+  </div>
+  <div id="menu" class="overlay menu">
+    <section class="intro">
+      <div class="eyebrow">АРЕНА ТЁМНЫХ МАГОВ / ОТ ПЕРВОГО ЛИЦА</div>
+      <h1>ASH<span>FALL</span></h1>
+      <p class="subtitle">ОСТАНЬСЯ ПОСЛЕДНИМ.</p>
+      <p class="description">Под ногами — остывающий камень. За краем — лава.<br>Три мага против тебя и друг друга. Ни одного союзника.</p>
+      <div class="rules"><div><b>01</b><p>Попадай заклинаниями.<small>Урон усиливает отбрасывание.</small></p></div><div><b>02</b><p>Выталкивай в лаву.<small>Арена сжимается — места всё меньше.</small></p></div><div><b>03</b><p>Становись сильнее.<small>Покупай улучшения между раундами.</small></p></div></div>
+      <button id="start-btn" class="primary">ВОЙТИ В ТИГЕЛЬ <span>→</span></button>
+      <p class="hint">5 раундов · свободный бой с ботами · все 6 заклинаний доступны сразу</p>
+    </section>
+    <div class="menu-note">ВДОХНОВЛЕНО WARLOCK ИЗ WARCRAFT III<br><span>Самостоятельный прототип · Three.js · без оригинальных ассетов</span></div>
+  </div>
+  <div id="pause" class="overlay centered" hidden><section class="panel"><div class="eyebrow">ТИШИНА ПЕРЕД БУРЕЙ</div><h2>Пауза</h2><p id="pause-text">Нажми «Продолжить», чтобы захватить мышь.</p><button id="resume-btn" class="primary">ПРОДОЛЖИТЬ →</button></section></div>
+  <div id="shop" class="overlay centered" hidden><section class="panel shop-panel"><div class="eyebrow">МЕЖДУ РАУНДАМИ / ЛАВКА ЧАРОДЕЯ</div><header><div><h2 id="shop-title"></h2><p id="shop-subtitle"></p></div><strong id="shop-gold"></strong></header><div id="shop-items"></div><button id="next-btn" class="primary">СЛЕДУЮЩИЙ РАУНД →</button></section></div>
+  <div id="msg"></div><div id="dmg-flash"></div><div id="lava-warning" hidden>ЛАВА! Q — РЫВОК К ЦЕНТРУ</div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

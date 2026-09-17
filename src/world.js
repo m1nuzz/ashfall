@@ -79,6 +79,37 @@ function makeStoneTexture() {
   return tex;
 }
 
+function loadArenaTextures(material) {
+  const loader = new THREE.TextureLoader();
+  const base = `${import.meta.env?.BASE_URL ?? "/"}assets/`;
+  const maps = [
+    ["map", "rock_ground_02_diff_1k.jpg", THREE.SRGBColorSpace],
+    ["normalMap", "rock_ground_02_nor_gl_1k.jpg", THREE.NoColorSpace],
+    ["roughnessMap", "rock_ground_02_rough_1k.jpg", THREE.NoColorSpace],
+  ];
+  Promise.allSettled(maps.map(([, file]) => loader.loadAsync(`${base}${file}`))).then((results) => {
+    if (results.some((result) => result.status === "rejected")) {
+      for (const result of results) {
+        if (result.status === "fulfilled") result.value.dispose();
+      }
+      return;
+    }
+    const fallback = material.map;
+    results.forEach((result, index) => {
+      const texture = result.value;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(9, 9);
+      texture.colorSpace = maps[index][2];
+      texture.anisotropy = 8;
+      material[maps[index][0]] = texture;
+    });
+    material.normalScale.set(0.65, 0.65);
+    material.roughness = 1;
+    material.needsUpdate = true;
+    fallback.dispose();
+  });
+}
+
 function makeRuneTexture() {
   const size = 1024;
   const canvas = document.createElement("canvas");
@@ -221,6 +252,7 @@ export function createWorld() {
   );
   arena.rotation.x = -Math.PI / 2;
   scene.add(arena);
+  loadArenaTextures(arena.material);
 
   const runeTex = makeRuneTexture();
   const runeMat = new THREE.MeshBasicMaterial({ map: runeTex, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });

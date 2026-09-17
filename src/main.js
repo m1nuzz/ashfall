@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { createWorld, ARENA_RADIUS } from "./world.js";
 import { createWizard, BOT_COLORS } from "./wizard.js";
+import { mountSettings, mouseRadians } from "./settings.js";
+import { createAudio } from "./audio.js";
+import { createMultiplayer } from "./multiplayer.js";
 
 const GRAVITY = 26;
 const MOVE_SPEED = 14;
@@ -22,6 +25,13 @@ document.getElementById("app").appendChild(renderer.domElement);
 const world = createWorld();
 const { scene, arena, ring, updateWorld } = world;
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 300);
+let sound;
+const settings = mountSettings(value => {
+  sound?.setVolume(value.volume);
+  camera.fov = value.fov;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, value.quality === 'low' ? 1 : 2));
+});
 
 const entities = [];
 const projectiles = [];
@@ -30,6 +40,7 @@ const bolts = [];
 const keys = {};
 let yaw = 0, pitch = 0;
 let locked = false;
+let requestingLock = false;
 
 const ui = {
   hp: document.getElementById("hp-fill"),
@@ -132,7 +143,16 @@ let gameTime = 0;
 let wins = 0;
 let mouseHeld = false;
 let castPulse = 0;
-let audio = null;
+sound = createAudio(() => settings.volume, message => {
+  document.getElementById('audio-status').textContent = message;
+});
+let mode = 'bots';
+let onlineId = null;
+let onlineState = null;
+let onlineInputTime = 0;
+const remoteEntities = new Map();
+const remoteProjectiles = new Map();
+const multiplayer = createMultiplayer({ onState: receiveOnlineState, onMatch: beginOnlineMatch, onLeave: returnToMenu });
 const costs = { fireball: 5, lightning: 7, homing: 6, meteor: 8, blink: 6, shield: 6 };
 for (const s of [...Object.values(SPELL_DEFS), ...Object.values(UTIL_DEFS)]) {
   s.cost = costs[s.id];
@@ -160,18 +180,12 @@ function clearEffects() {
   bolts.length = 0;
 }
 
-function tone(frequency, duration = 0.12) {
-  if (!audio || audio.state !== "running") return;
-  const oscillator = audio.createOscillator();
-  const gain = audio.createGain();
-  oscillator.type = "triangle";
-  oscillator.frequency.setValueAtTime(frequency, audio.currentTime);
-  oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.4, audio.currentTime + duration);
-  gain.gain.setValueAtTime(0.035, audio.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + duration);
-  oscillator.connect(gain).connect(audio.destination);
-  oscillator.start();
-  oscillator.stop(audio.currentTime + duration);
+function playAt(name, position) {
+  const offset = position.clone().sub(camera.position);
+  const distance = offset.length();
+  if (distance > 45) return;
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  sound.play(name, { gain: 0.5 / (1 + distance * 0.1), pan: offset.normalize().dot(right) });
 }
 
 const hand = new THREE.Group();
@@ -194,6 +208,153 @@ for (let i = 0; i < BOT_COUNT; i++) {
   const bot = makeBot(i, spawnPos(i * Math.PI * 2 / BOT_COUNT, 10));
   bot.wiz.group.position.copy(bot.pos);
   entities.push(bot);
+}
+
+function clearOnlineObjects() {
+  for (const e of remoteEntities.values()) disposeObject(e.wiz.group);
+  for (const mesh of remoteProjectiles.values()) disposeObject(mesh);
+  remoteEntities.clear();
+  remoteProjectiles.clear();
+}
+
+function returnToMenu() {
+  sound.stop();
+  phase = 'menu';
+  mode = 'bots';
+  paused = false;
+  onlineState = null;
+  clearInput();
+  document.exitPointerLock();
+  clearEffects();
+  clearOnlineObjects();
+  for (const e of entities) if (e !== player) disposeObject(e.wiz.group);
+  entities.length = 0;
+  ui.menu.hidden = false;
+  ui.pause.hidden = true;
+  ui.shop.hidden = true;
+  ui.hudShow(false);
+  ui.lavaWarn.hidden = true;
+  hand.visible = false;
+  camera.position.set(23, 16, 31);
+  camera.lookAt(0, 0, 0);
+  arena.scale.setScalar(1);
+  ring.scale.setScalar(1);
+}
+
+function beginOnlineMatch(id) {
+  clearEffects();
+  clearOnlineObjects();
+  for (const e of entities) if (e !== player) disposeObject(e.wiz.group);
+  entities.length = 0;
+  mode = 'online';
+  phase = 'fight';
+  onlineId = id;
+  onlineState = null;
+  onlineInputTime = 0;
+  player.hp = 100;
+  player.alive = true;
+  player.cds = {};
+  gameTime = 0;
+  yaw = 0;
+  pitch = 0;
+  paused = true;
+  clearInput();
+  ui.menu.hidden = true;
+  ui.shop.hidden = true;
+  ui.pause.hidden = false;
+  ui.hudShow(true);
+  document.getElementById('pause-text').textContent = 'Матч начался. Нажми «Продолжить». В онлайне бой не останавливается.';
+  for (const s of [...Object.values(SPELL_DEFS), ...Object.values(UTIL_DEFS)]) s.level = 1;
+}
+
+function receiveOnlineState(snapshot, id) {
+  if (mode !== 'online') return;
+  const first = !onlineState;
+  onlineState = snapshot;
+  onlineId = id;
+  gameTime = snapshot.time;
+  arenaRadius = snapshot.radius;
+  arena.scale.setScalar(arenaRadius / ARENA_RADIUS);
+  ring.scale.setScalar(arenaRadius / ARENA_RADIUS);
+  const local = snapshot.players.find(p => p.id === id);
+  if (local) {
+    if (local.hp < player.hp) flashDamage();
+    player.hp = local.hp;
+    player.dmgPts = local.damage;
+    player.alive = local.alive;
+    player.cds = local.cooldowns;
+    player.shieldUntil = local.shieldUntil;
+    if (first) { yaw = local.yaw; player.pos.set(local.x, local.y, local.z); }
+  }
+  const seen = new Set();
+  for (const [index, peer] of snapshot.players.entries()) {
+    if (peer.id === id) continue;
+    seen.add(peer.id);
+    let e = remoteEntities.get(peer.id);
+    if (!e) {
+      e = { wiz: createWizard(BOT_COLORS[index % BOT_COLORS.length]), target: new THREE.Vector3() };
+      e.wiz.group.position.set(peer.x, peer.y, peer.z);
+      scene.add(e.wiz.group);
+      remoteEntities.set(peer.id, e);
+    }
+    e.target.set(peer.x, peer.y, peer.z);
+    e.wiz.group.rotation.y = peer.yaw + Math.PI;
+    e.wiz.group.visible = peer.alive;
+    e.wiz.shield.visible = peer.shieldUntil > snapshot.time;
+  }
+  for (const [key, e] of remoteEntities) if (!seen.has(key)) { disposeObject(e.wiz.group); remoteEntities.delete(key); }
+  const seenProjectiles = new Set();
+  for (const p of snapshot.projectiles) {
+    seenProjectiles.add(p.id);
+    let mesh = remoteProjectiles.get(p.id);
+    if (!mesh) {
+      const colors = { fireball: 0xff6622, homing: 0x5599ff, meteor: 0xffaa22 };
+      mesh = new THREE.Mesh(new THREE.SphereGeometry(p.spell === 'meteor' ? 1.1 : 0.6, 10, 10), new THREE.MeshBasicMaterial({ color: colors[p.spell] || 0xffffff }));
+      scene.add(mesh);
+      remoteProjectiles.set(p.id, mesh);
+      if (Math.hypot(p.x - player.pos.x, p.z - player.pos.z) > 3) playAt(p.spell, new THREE.Vector3(p.x, p.y, p.z));
+    }
+    mesh.position.set(p.x, p.y, p.z);
+  }
+  for (const [key, mesh] of remoteProjectiles) if (!seenProjectiles.has(key)) { disposeObject(mesh); remoteProjectiles.delete(key); }
+  if (snapshot.phase === 'finished') {
+    if (phase !== 'online-finished') sound.play(snapshot.winner === id ? 'victory' : 'hit');
+    phase = 'online-finished';
+    clearInput();
+    document.exitPointerLock();
+    ui.pause.hidden = true;
+    ui.hudShow(false);
+    for (const panel of document.querySelectorAll('.subpanel')) panel.hidden = true;
+  }
+}
+
+function sendOnlineInput() {
+  multiplayer.send({ type: 'input', forward: paused || !player.alive ? 0 : Number(!!keys.w) - Number(!!keys.s), right: paused || !player.alive ? 0 : Number(!!keys.d) - Number(!!keys.a), yaw, pitch: -pitch, jump: !paused && player.alive && !!keys.space });
+}
+
+function castOnline(spell) {
+  if (phase !== 'fight' || paused || !player.alive || (player.cds[spell] || 0) > gameTime) return;
+  sendOnlineInput();
+  multiplayer.send({ type: 'cast', spell });
+  const cooldown = SPELL_DEFS[spell]?.cd || (spell === 'blink' ? 5 : 8);
+  player.cds[spell] = gameTime + cooldown;
+  sound.play(spell);
+  castPulse = 1;
+}
+
+function updateOnline(dt) {
+  if (!onlineState) return;
+  const local = onlineState.players.find(p => p.id === onlineId);
+  if (local) {
+    const target = new THREE.Vector3(local.x, local.y, local.z);
+    if (player.pos.distanceTo(target) > 5) player.pos.copy(target);
+    else player.pos.lerp(target, 1 - Math.exp(-24 * dt));
+  }
+  for (const e of remoteEntities.values()) e.wiz.group.position.lerp(e.target, 1 - Math.exp(-18 * dt));
+  onlineInputTime += dt;
+  if (onlineInputTime >= 0.06) { onlineInputTime = 0; sendOnlineInput(); }
+  if (mouseHeld) castOnline('fireball');
+  updateCamera();
 }
 
 function setupRound() {
@@ -247,7 +408,10 @@ function damage(target, dmg, kbVec, source) {
   }
   target.hp -= dmg;
   target.dmgPts += dmg;
-  if (kbVec && kbVec.lengthSq() > 0.0001) applyKb(target, kbVec.clone().multiplyScalar(currentKb(target)));
+  if (kbVec && kbVec.lengthSq() > 0.0001) {
+    applyKb(target, kbVec.clone().multiplyScalar(currentKb(target)));
+    playAt('hit', target.pos);
+  }
   if (target === player) flashDamage();
   if (target.hp <= 0) killEntity(target, source);
 }
@@ -268,6 +432,7 @@ function killEntity(e, source) {
     source.kills++;
     if (source === player) STATE.gold += 2;
     addFeed(source.name, e.name);
+    playAt('hit', e.pos);
   } else {
     addFeed("Лава", e.name);
   }
@@ -298,6 +463,7 @@ function physics(e, dt) {
 }
 
 function fireProjectile(owner, from, dir, spec) {
+  if (owner !== player) playAt(spec.id, from);
   const colorMap = { fireball: 0xff6622, homing: 0x5599ff, meteor: 0xffaa22 };
   const mesh = new THREE.Mesh(
     new THREE.SphereGeometry(spec.radius, 10, 10),
@@ -337,12 +503,13 @@ function hitscan(from, dir) {
 }
 
 function playerShoot(spec) {
+  if (mode === 'online') { castOnline(spec.id); return; }
   if (!player.alive || phase !== "fight" || paused) return;
   const now = gameTime;
   if ((player.cds[spec.id] || 0) > now) return;
   player.cds[spec.id] = now + spec.cd * Math.pow(0.92, spec.level - 1);
   castPulse = 1;
-  tone(spec.hitscan ? 880 : 220);
+  sound.play(spec.id);
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   const from = camera.position.clone().add(dir.clone().multiplyScalar(1.2));
@@ -362,6 +529,7 @@ function playerShoot(spec) {
 }
 
 function tryBlink() {
+  if (mode === 'online') { castOnline('blink'); return; }
   if (!player.alive || phase !== "fight" || paused) return;
   const now = gameTime;
   if ((player.cds["blink"] || 0) > now) return;
@@ -372,16 +540,18 @@ function tryBlink() {
   if (Math.hypot(dest.x, dest.z) < arenaRadius - PLAYER_RADIUS) player.pos.y = Math.max(0, player.pos.y);
   player.vel.set(0, Math.max(player.vel.y, 0), 0);
   player.staggerUntil = 0;
-  tone(650);
+  sound.play('blink');
   updateCamera();
 }
 
 function tryShield() {
+  if (mode === 'online') { castOnline('shield'); return; }
   if (!player.alive || phase !== "fight" || paused) return;
   const now = gameTime;
   if ((player.cds["shield"] || 0) > now) return;
   player.cds["shield"] = now + 8 * Math.pow(0.92, UTIL_DEFS.shield.level - 1);
   player.shieldUntil = now + 2.5 + 0.3 * UTIL_DEFS.shield.level;
+  sound.play('shield');
 }
 
 function botAI(e, dt) {
@@ -466,6 +636,7 @@ function updateCamera() {
 }
 
 function flashDamage() {
+  sound.play('hit');
   ui.dmgFlash.style.opacity = "0.45";
   setTimeout(() => (ui.dmgFlash.style.opacity = "0"), 120);
 }
@@ -493,6 +664,8 @@ function startFight() {
 }
 
 function endRound(playerWon) {
+  sound.stop();
+  sound.play(playerWon ? 'victory' : 'hit');
   phase = "shop";
   paused = false;
   clearInput();
@@ -626,7 +799,8 @@ function tick() {
 
   updateWorld(t);
 
-  if (phase === "fight" && !paused) {
+  if (phase === 'fight' && mode === 'online') updateOnline(dt);
+  if (phase === "fight" && !paused && mode === 'bots') {
     gameTime += dt;
     if (mouseHeld) playerShoot(SPELL_DEFS.fireball);
     arenaRadius = Math.max(8, arenaRadius - STATE.arenaShrink * dt);
@@ -649,9 +823,9 @@ function tick() {
   if (phase === "fight") {
     ui.hp.style.width = Math.max(0, player.hp) + "%";
     ui.hpText.textContent = Math.max(0, player.hp | 0);
-    ui.gold.textContent = "Золото " + STATE.gold;
-    ui.round.textContent = "Раунд " + STATE.round + "/" + TOTAL_ROUNDS;
-    ui.alive.textContent = "Живых: " + entities.filter((e) => e.alive).length;
+    ui.gold.textContent = mode === 'online' ? 'Без ботов · серверный бой' : "Золото " + STATE.gold;
+    ui.round.textContent = mode === 'online' ? 'Комната ' + (onlineState?.code || '') : "Раунд " + STATE.round + "/" + TOTAL_ROUNDS;
+    ui.alive.textContent = "Живых: " + (mode === 'online' ? onlineState?.players.filter(e => e.alive).length || 0 : entities.filter((e) => e.alive).length);
     ui.dmgPts.textContent = "Урон: " + (player.dmgPts | 0);
     ui.arenaSize.textContent = "Арена: " + (arenaRadius | 0) + " м";
     ui.lavaWarn.hidden = Math.hypot(player.pos.x, player.pos.z) < arenaRadius - 4;
@@ -722,9 +896,11 @@ function updateProjectiles(dt) {
 document.addEventListener("keydown", (ev) => {
   const k = ev.code.replace("Key", "").toLowerCase();
   keys[k] = true;
-  if (ev.code === "Space") ev.preventDefault();
-  if (ev.code === "Escape") {
-    if (phase === "fight" && !paused) pauseGame();
+  if (ev.code === 'Space' && phase === 'fight' && !paused) ev.preventDefault();
+  if (ev.code === 'Escape') {
+    const openPanel = document.querySelector('.subpanel:not([hidden])');
+    if (openPanel) openPanel.hidden = true;
+    else if (phase === 'fight' && !paused) pauseGame();
     return;
   }
   if (phase !== "fight" || paused) return;
@@ -753,13 +929,28 @@ function pauseGame() {
 }
 
 async function requestLock() {
+  void sound.unlock();
   paused = true;
   clearInput();
+  const rawStatus = document.getElementById('raw-input-status');
+  requestingLock = true;
   try {
-    await renderer.domElement.requestPointerLock();
+    try {
+      const request = renderer.domElement.requestPointerLock({ unadjustedMovement: true });
+      await request;
+      rawStatus.textContent = request && typeof request.then === 'function'
+        ? 'Raw input активен: стандартная шкала CS2 без ускорения ОС.'
+        : 'Браузер не подтверждает raw input: точное совпадение с CS2 не гарантируется.';
+    } catch (error) {
+      if (error.name !== 'NotSupportedError') throw error;
+      await renderer.domElement.requestPointerLock();
+      rawStatus.textContent = 'Raw input недоступен. Ускорение и настройки ОС могут менять сенсу.';
+    }
   } catch {
     pauseGame();
     document.getElementById("pause-text").textContent = "Браузер не захватил мышь. Нажми «Продолжить» ещё раз.";
+  } finally {
+    requestingLock = false;
   }
 }
 
@@ -771,8 +962,8 @@ function togglePause() {
 
 document.addEventListener("mousemove", (ev) => {
   if (locked && phase === "fight" && !paused) {
-    yaw -= ev.movementX * 0.0022;
-    pitch -= ev.movementY * 0.0022;
+    yaw -= mouseRadians(ev.movementX, settings.sensitivity);
+    pitch -= mouseRadians(ev.movementY, settings.sensitivity) * (settings.invertY ? -1 : 1);
     pitch = Math.max(-1.5, Math.min(1.5, pitch));
   }
 });
@@ -786,7 +977,12 @@ renderer.domElement.addEventListener("mousedown", (ev) => {
 
 document.addEventListener("mouseup", () => { mouseHeld = false; });
 window.addEventListener("blur", pauseGame);
-document.addEventListener("pointerlockerror", pauseGame);
+document.addEventListener("pointerlockerror", () => {
+  if (requestingLock || document.pointerLockElement === renderer.domElement || phase !== 'fight') return;
+  paused = true;
+  clearInput();
+  ui.pause.hidden = false;
+});
 
 document.addEventListener("pointerlockchange", () => {
   locked = document.pointerLockElement === renderer.domElement;
@@ -799,11 +995,32 @@ document.addEventListener("pointerlockchange", () => {
 ui.resumeBtn.addEventListener("click", () => togglePause());
 ui.nextBtn.addEventListener("click", closeShop);
 document.getElementById("start-btn").addEventListener("click", () => {
+  multiplayer.disconnect(false);
+  mode = 'bots';
+  document.getElementById('pause-text').textContent = 'Бой остановлен. Нажми «Продолжить».';
   resetTournament();
-  if (!audio) audio = new AudioContext();
-  audio.resume().catch(() => {});
+  void sound.unlock();
   startFight();
 });
+
+document.addEventListener('pointerdown', () => { void sound.unlock(); }, { once: true });
+document.addEventListener('click', event => {
+  if (event.target.closest('button')) {
+    void sound.unlock();
+    sound.play('ui');
+  }
+});
+document.getElementById('audio-preview').addEventListener('click', () => sound.preview());
+document.getElementById('exit-game-btn').addEventListener('click', () => multiplayer.disconnect());
+for (const s of [...Object.values(SPELL_DEFS), ...Object.values(UTIL_DEFS)]) {
+  const article = document.createElement('article');
+  const title = document.createElement('b');
+  title.textContent = s.key + ' · ' + s.name;
+  const text = document.createElement('p');
+  text.textContent = s.desc;
+  article.append(title, text);
+  document.getElementById('grimoire-spells').append(article);
+}
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;

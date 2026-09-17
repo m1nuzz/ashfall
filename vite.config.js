@@ -3,5 +3,8 @@ import { defineConfig } from "vite";
 export default defineConfig({
   server: {
     allowedHosts: ["darwinism-answering-pectin.ngrok-free.dev"],
+    proxy: {
+      "/ws": { target: "ws://127.0.0.1:3001", ws: true },
+    },
   },
 });

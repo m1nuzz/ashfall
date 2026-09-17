@@ -1,0 +1,193 @@
+{
+  "assets": [
+    {
+      "id": "rock_ground_02",
+      "name": "Rock Ground 02",
+      "type": "texture",
+      "author": "Rob Tuytel",
+      "provider": "Poly Haven",
+      "sourceUrl": "https://polyhaven.com/a/rock_ground_02",
+      "apiUrl": "https://api.polyhaven.com/files/rock_ground_02",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licenseEvidenceUrl": "https://polyhaven.com/license",
+      "resolution": "1k",
+      "totalBytes": 2783695,
+      "files": [
+        {
+          "map": "albedo",
+          "filename": "rock_ground_02_diff_1k.jpg",
+          "localPath": "/assets/rock_ground_02_diff_1k.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_ground_02/rock_ground_02_diff_1k.jpg",
+          "colorSpace": "srgb",
+          "bytes": 872985,
+          "md5": "3820a229d3cb7a625f8e31a5b41c26df",
+          "httpStatus": 200
+        },
+        {
+          "map": "normal",
+          "convention": "OpenGL",
+          "filename": "rock_ground_02_nor_gl_1k.jpg",
+          "localPath": "/assets/rock_ground_02_nor_gl_1k.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_ground_02/rock_ground_02_nor_gl_1k.jpg",
+          "colorSpace": "none",
+          "bytes": 1380865,
+          "md5": "11c91ded28ff24b887602a87c825dc14",
+          "httpStatus": 200
+        },
+        {
+          "map": "roughness",
+          "filename": "rock_ground_02_rough_1k.jpg",
+          "localPath": "/assets/rock_ground_02_rough_1k.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_ground_02/rock_ground_02_rough_1k.jpg",
+          "colorSpace": "none",
+          "bytes": 529845,
+          "md5": "db85eba239af058d9acb16bd1d8f4eab",
+          "httpStatus": 200
+        }
+      ]
+    },
+    {
+      "id": "kenney_digital_audio",
+      "name": "Digital Audio",
+      "type": "audio",
+      "author": "Kenney Vleugels",
+      "provider": "Kenney",
+      "sourceUrl": "https://kenney.nl/assets/digital-audio",
+      "downloadUrl": "https://kenney.nl/media/pages/assets/digital-audio/216eac4753-1677590265/kenney_digital-audio.zip",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licenseEvidenceUrl": "https://kenney.nl/assets/digital-audio",
+      "licenseLocalPath": "/assets/audio/LICENSE-digital-audio.txt",
+      "licenseOriginalFilename": "License.txt",
+      "modifications": "Audio bytes unchanged; renamed for gameplay roles. Fireball uses a stylized laser effect, not recorded fire.",
+      "totalBytes": 32354,
+      "files": [
+        {
+          "role": "fireball",
+          "filename": "fireball.ogg",
+          "originalFilename": "laser5.ogg",
+          "originalPath": "Audio/laser5.ogg",
+          "localPath": "/assets/audio/fireball.ogg",
+          "bytes": 8484,
+          "durationSeconds": 1.013673,
+          "sha256": "8d7b30b35112bedf4dd6f03796a5f33af85414b02947187e4063819fd80cf3e2"
+        },
+        {
+          "role": "magic",
+          "filename": "magic.ogg",
+          "originalFilename": "powerUp1.ogg",
+          "originalPath": "Audio/powerUp1.ogg",
+          "localPath": "/assets/audio/magic.ogg",
+          "bytes": 9011,
+          "durationSeconds": 1.201633,
+          "sha256": "8c361b624b560c0bc30ea3063b71212bc30caebf425c9df2481c13b25561485c"
+        },
+        {
+          "role": "lightning",
+          "filename": "lightning.ogg",
+          "originalFilename": "zap1.ogg",
+          "originalPath": "Audio/zap1.ogg",
+          "localPath": "/assets/audio/lightning.ogg",
+          "bytes": 8126,
+          "durationSeconds": 1.018776,
+          "sha256": "4e4bf11c671a4be0723022a7177f8e122329fa32a0c59555581f4193ed111585"
+        },
+        {
+          "role": "blink",
+          "filename": "blink.ogg",
+          "originalFilename": "phaseJump1.ogg",
+          "originalPath": "Audio/phaseJump1.ogg",
+          "localPath": "/assets/audio/blink.ogg",
+          "bytes": 6733,
+          "durationSeconds": 0.470204,
+          "sha256": "c60069ed7108678dd6a1306404d168a93cc2575cda37b06add9dd6c4d46352a3"
+        }
+      ]
+    },
+    {
+      "id": "kenney_impact_sounds",
+      "name": "Impact Sounds",
+      "type": "audio",
+      "author": "Kenney",
+      "provider": "Kenney",
+      "sourceUrl": "https://kenney.nl/assets/impact-sounds",
+      "downloadUrl": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licenseEvidenceUrl": "https://kenney.nl/assets/impact-sounds",
+      "licenseLocalPath": "/assets/audio/LICENSE-impact-sounds.txt",
+      "licenseOriginalFilename": "License.txt",
+      "modifications": "Audio bytes unchanged; renamed for gameplay role.",
+      "totalBytes": 11617,
+      "files": [
+        {
+          "role": "hit",
+          "filename": "hit.ogg",
+          "originalFilename": "impactPunch_heavy_000.ogg",
+          "originalPath": "Audio/impactPunch_heavy_000.ogg",
+          "localPath": "/assets/audio/hit.ogg",
+          "bytes": 11617,
+          "durationSeconds": 0.649025,
+          "sha256": "b33a8f14068aec24ec69ba85e5e87fdc41228975f6a1a3e44a6e7d6fc3d9f8d8"
+        }
+      ]
+    },
+    {
+      "id": "kenney_interface_sounds",
+      "name": "Interface Sounds",
+      "type": "audio",
+      "author": "Kenney",
+      "provider": "Kenney",
+      "sourceUrl": "https://kenney.nl/assets/interface-sounds",
+      "downloadUrl": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licenseEvidenceUrl": "https://kenney.nl/assets/interface-sounds",
+      "licenseLocalPath": "/assets/audio/LICENSE-interface-sounds.txt",
+      "licenseOriginalFilename": "License.txt",
+      "modifications": "Audio bytes unchanged; renamed for gameplay role.",
+      "totalBytes": 4876,
+      "files": [
+        {
+          "role": "ui",
+          "filename": "ui.ogg",
+          "originalFilename": "click_001.ogg",
+          "originalPath": "Audio/click_001.ogg",
+          "localPath": "/assets/audio/ui.ogg",
+          "bytes": 4876,
+          "durationSeconds": 0.100023,
+          "sha256": "ccfb7fa0cccdd9faec0eb16033c732b1e308d139d80f799161495d58f7adcdb9"
+        }
+      ]
+    },
+    {
+      "id": "kenney_music_jingles",
+      "name": "Music Jingles",
+      "type": "audio",
+      "author": "Kenney Vleugels",
+      "provider": "Kenney",
+      "sourceUrl": "https://kenney.nl/assets/music-jingles",
+      "downloadUrl": "https://kenney.nl/media/pages/assets/music-jingles/f37e530b9e-1677590399/kenney_music-jingles.zip",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licenseEvidenceUrl": "https://kenney.nl/assets/music-jingles",
+      "licenseLocalPath": "/assets/audio/LICENSE-music-jingles.txt",
+      "licenseOriginalFilename": "License.txt",
+      "modifications": "Audio bytes unchanged; renamed for gameplay role.",
+      "totalBytes": 10382,
+      "files": [
+        {
+          "role": "victory",
+          "filename": "victory.ogg",
+          "originalFilename": "jingles_PIZZI00.ogg",
+          "originalPath": "Audio/Pizzicato jingles/jingles_PIZZI00.ogg",
+          "localPath": "/assets/audio/victory.ogg",
+          "bytes": 10382,
+          "durationSeconds": 0.494172,
+          "sha256": "b442ade3308a2bbda4b8c572c86f9f1071c7bdbcfb1e6f915d35c605b61bd475"
+        }
+      ]
+    }
+  ]
+}

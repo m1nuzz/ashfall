@@ -1,0 +1,190 @@
+{
+  "tool": "ffmpeg 9.0.1-full_build-www.gyan.dev",
+  "files": [
+    {
+      "filename": "fireball-01.ogg",
+      "localPath": "/assets/audio/fireball-01.ogg",
+      "sourceFiles": [
+        "source-waving-torch.wav",
+        "source-fire-crackling.wav"
+      ],
+      "sha256": "4cf37221c24f8f1fbdde963cb6ea3508b6af54e50680e6b0d46710fd065c6733",
+      "bytes": 16215,
+      "processing": {
+        "ffmpegFilterComplex": "[0:a]atrim=start=1.92:duration=0.98,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=65,lowpass=f=10000,afade=t=in:d=0.008,afade=t=out:st=0.64:d=0.34[t];[1:a]atrim=start=0.3:duration=0.98,asetpts=PTS-STARTPTS,highpass=f=180,lowpass=f=8000,volume=0.7,afade=t=in:d=0.025,afade=t=out:st=0.3:d=0.68[f];[t][f]amix=inputs=2:normalize=0[out]",
+        "postMixFilter": "volume=5.13260746dB,alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true",
+        "encoding": "libvorbis q=6, mono, 48000 Hz, metadata stripped",
+        "pitchOrSpeedChange": false,
+        "normalization": "Measured mixed PCM peak normalized to -4 dBFS before encoding; safety limiter at -3 dBFS, automatic makeup disabled"
+      },
+      "verification": {
+        "durationSeconds": 0.9773333333333334,
+        "peakDbFS": -4.151689353486547,
+        "rmsDbFS": -22.645276384724898,
+        "clippedSamples": 0,
+        "nonFiniteSamples": 0,
+        "firstSample": -1.889910527097527e-05,
+        "lastSample": 0.0010386985959485173,
+        "onsetSecondsAboveMinus40Db": 0.0045625
+      }
+    },
+    {
+      "filename": "fireball-02.ogg",
+      "localPath": "/assets/audio/fireball-02.ogg",
+      "sourceFiles": [
+        "source-waving-torch.wav",
+        "source-fire-crackling.wav"
+      ],
+      "sha256": "5e705bcbfed4afbcbab1bb977f504ff6945b665357eddce374e546418d7fff71",
+      "bytes": 11818,
+      "processing": {
+        "ffmpegFilterComplex": "[0:a]atrim=start=3.46:duration=0.78,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=65,lowpass=f=10000,afade=t=in:d=0.008,afade=t=out:st=0.47:d=0.31[t];[1:a]atrim=start=1.2:duration=0.78,asetpts=PTS-STARTPTS,highpass=f=180,lowpass=f=8000,volume=0.8,afade=t=in:d=0.025,afade=t=out:st=0.25:d=0.53[f];[t][f]amix=inputs=2:normalize=0[out]",
+        "postMixFilter": "volume=3.30130155dB,alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true",
+        "encoding": "libvorbis q=6, mono, 48000 Hz, metadata stripped",
+        "pitchOrSpeedChange": false,
+        "normalization": "Measured mixed PCM peak normalized to -4 dBFS before encoding; safety limiter at -3 dBFS, automatic makeup disabled"
+      },
+      "verification": {
+        "durationSeconds": 0.7773333333333333,
+        "peakDbFS": -4.057815884505879,
+        "rmsDbFS": -22.151472948489932,
+        "clippedSamples": 0,
+        "nonFiniteSamples": 0,
+        "firstSample": -1.2210698514536489e-05,
+        "lastSample": 1.0779591320897453e-05,
+        "onsetSecondsAboveMinus40Db": 0.015229166666666667
+      }
+    },
+    {
+      "filename": "lightning-01.ogg",
+      "localPath": "/assets/audio/lightning-01.ogg",
+      "sourceFiles": [
+        "source-thunder-close.wav"
+      ],
+      "sha256": "fcdbc0ee82aba97e9cb781bb3112b626c105787c46275ebd9f0f945315fca307",
+      "bytes": 27607,
+      "processing": {
+        "ffmpegFilterComplex": "[0:a]atrim=start=1.04:duration=2.1,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=40,lowpass=f=11000,afade=t=in:d=0.002,afade=t=out:st=1.35:d=0.75[out]",
+        "postMixFilter": "volume=-4.04164888dB,alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true",
+        "encoding": "libvorbis q=6, mono, 48000 Hz, metadata stripped",
+        "pitchOrSpeedChange": false,
+        "normalization": "Measured mixed PCM peak normalized to -4 dBFS before encoding; safety limiter at -3 dBFS, automatic makeup disabled"
+      },
+      "verification": {
+        "durationSeconds": 2.1,
+        "peakDbFS": -3.8124315590638025,
+        "rmsDbFS": -18.768553315715884,
+        "clippedSamples": 0,
+        "nonFiniteSamples": 0,
+        "firstSample": 7.232166535686702e-05,
+        "lastSample": -3.0168434022925794e-05,
+        "onsetSecondsAboveMinus40Db": 0.002125
+      }
+    },
+    {
+      "filename": "lightning-02.ogg",
+      "localPath": "/assets/audio/lightning-02.ogg",
+      "sourceFiles": [
+        "source-thunder-close.wav"
+      ],
+      "sha256": "0d17131a3740749c2499969428e92c4e1995623146eacd8c21a82bb158b7c3dd",
+      "bytes": 24221,
+      "processing": {
+        "ffmpegFilterComplex": "[0:a]atrim=start=1.49:duration=1.9,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=45,lowpass=f=10500,afade=t=in:d=0.002,afade=t=out:st=1.1:d=0.8[out]",
+        "postMixFilter": "volume=-4.03254904dB,alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true",
+        "encoding": "libvorbis q=6, mono, 48000 Hz, metadata stripped",
+        "pitchOrSpeedChange": false,
+        "normalization": "Measured mixed PCM peak normalized to -4 dBFS before encoding; safety limiter at -3 dBFS, automatic makeup disabled"
+      },
+      "verification": {
+        "durationSeconds": 1.9,
+        "peakDbFS": -3.8185445459124825,
+        "rmsDbFS": -19.301184223135973,
+        "clippedSamples": 0,
+        "nonFiniteSamples": 0,
+        "firstSample": 7.3040282586589456e-06,
+        "lastSample": 4.495773100643419e-05,
+        "onsetSecondsAboveMinus40Db": 0.001375
+      }
+    },
+    {
+      "filename": "meteor-rumble.ogg",
+      "localPath": "/assets/audio/meteor-rumble.ogg",
+      "sourceFiles": [
+        "source-thunder-close.wav",
+        "source-waving-torch.wav"
+      ],
+      "sha256": "3c3c805c2973fda8e14d6c6e7198c9888350fe7112594bbae8f2b7ff83fdb748",
+      "bytes": 25460,
+      "processing": {
+        "ffmpegFilterComplex": "[0:a]atrim=start=1.49:duration=2.3,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=35,lowpass=f=2400,afade=t=in:d=0.012,afade=t=out:st=1.2:d=1.1[t];[1:a]atrim=start=1.92:duration=0.98,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=80,lowpass=f=7000,volume=1.4,afade=t=in:d=0.008,afade=t=out:st=0.45:d=0.53[f];[t][f]amix=inputs=2:duration=longest:normalize=0[out]",
+        "postMixFilter": "volume=-7.64949687dB,alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true",
+        "encoding": "libvorbis q=6, mono, 48000 Hz, metadata stripped",
+        "pitchOrSpeedChange": false,
+        "normalization": "Measured mixed PCM peak normalized to -4 dBFS before encoding; safety limiter at -3 dBFS, automatic makeup disabled"
+      },
+      "verification": {
+        "durationSeconds": 2.3,
+        "peakDbFS": -3.9836783114097223,
+        "rmsDbFS": -20.667325677989055,
+        "clippedSamples": 0,
+        "nonFiniteSamples": 0,
+        "firstSample": 1.3463803952618036e-05,
+        "lastSample": -3.8854691410961095e-06,
+        "onsetSecondsAboveMinus40Db": 0.0035208333333333333
+      }
+    },
+    {
+      "filename": "ember-whoosh.ogg",
+      "localPath": "/assets/audio/ember-whoosh.ogg",
+      "sourceFiles": [
+        "source-waving-torch.wav"
+      ],
+      "sha256": "f85cd53e14789d9cdc49f295026600926798c19d0c5e50f80389cd4c6e5ad247",
+      "bytes": 10610,
+      "processing": {
+        "ffmpegFilterComplex": "[0:a]atrim=start=3.46:duration=0.65,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=100,lowpass=f=6500,afade=t=in:d=0.012,afade=t=out:st=0.35:d=0.3[out]",
+        "postMixFilter": "volume=6.99802353dB,alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true",
+        "encoding": "libvorbis q=6, mono, 48000 Hz, metadata stripped",
+        "pitchOrSpeedChange": false,
+        "normalization": "Measured mixed PCM peak normalized to -4 dBFS before encoding; safety limiter at -3 dBFS, automatic makeup disabled"
+      },
+      "verification": {
+        "durationSeconds": 0.6473333333333333,
+        "peakDbFS": -4.4278175691006485,
+        "rmsDbFS": -21.801962379265344,
+        "clippedSamples": 0,
+        "nonFiniteSamples": 0,
+        "firstSample": -9.208190876464073e-10,
+        "lastSample": 2.7723672246793285e-07,
+        "onsetSecondsAboveMinus40Db": 0.09414583333333333
+      }
+    },
+    {
+      "filename": "round-end.ogg",
+      "localPath": "/assets/audio/round-end.ogg",
+      "sourceFiles": [
+        "source-thunder-close.wav"
+      ],
+      "sha256": "56f6355bb99fcecbde31200efb5541e662760a458de2b1a4d43ae620b7a881b9",
+      "bytes": 15784,
+      "processing": {
+        "ffmpegFilterComplex": "[0:a]atrim=start=2.75:duration=1.25,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,highpass=f=55,lowpass=f=1600,afade=t=in:d=0.06,afade=t=out:st=0.35:d=0.9[out]",
+        "postMixFilter": "volume=3.63810827dB,alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true",
+        "encoding": "libvorbis q=6, mono, 48000 Hz, metadata stripped",
+        "pitchOrSpeedChange": false,
+        "normalization": "Measured mixed PCM peak normalized to -4 dBFS before encoding; safety limiter at -3 dBFS, automatic makeup disabled"
+      },
+      "verification": {
+        "durationSeconds": 1.25,
+        "peakDbFS": -4.037635970706143,
+        "rmsDbFS": -21.42254740851556,
+        "clippedSamples": 0,
+        "nonFiniteSamples": 0,
+        "firstSample": 1.5154151697061025e-05,
+        "lastSample": -1.3560774277721066e-05,
+        "onsetSecondsAboveMinus40Db": 0.006375
+      }
+    }
+  ]
+}

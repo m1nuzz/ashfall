@@ -5,14 +5,14 @@ const BOT_COLORS = [0xcc4444, 0x4466cc, 0x66cc44, 0xccaa44, 0xaa44cc, 0x44cccc];
 export function createWizard(color = 0xdd6622) {
   const group = new THREE.Group();
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.35), roughness: 0.8, metalness: 0.15 });
   const body = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.6, 8), bodyMat);
   body.position.y = 0.8;
   group.add(body);
 
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.28, 12, 12),
-    new THREE.MeshStandardMaterial({ color: 0xe8c39e, roughness: 0.7 })
+    new THREE.MeshStandardMaterial({ color: 0x111019, roughness: 0.95 })
   );
   head.position.y = 1.85;
   group.add(head);
@@ -41,7 +41,7 @@ export function createWizard(color = 0xdd6622) {
   group.add(orb);
 
   const eyeGeo = new THREE.SphereGeometry(0.04, 6, 6);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffb675 });
   const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
   eyeL.position.set(-0.09, 1.88, 0.26);
   group.add(eyeL);

@@ -1,8 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
+import { BOARD_META, createProfileStore, normalizeName } from "./profile-store.mjs";
 
 const DT = 1 / 30;
 const TAU = Math.PI * 2;
@@ -18,6 +19,8 @@ const FIELDS = {
   create: ["type", "name"],
   join: ["type", "code", "name"],
   start: ["type"],
+  ready: ["type", "ready"],
+  authenticate: ["type", "token"],
   input: ["type", "forward", "right", "yaw", "pitch", "jump"],
   cast: ["type", "spell"],
   leave: ["type"],
@@ -49,7 +52,8 @@ function direction(player) {
 
 function makePlayer(peer, angle = 0) {
   return {
-    id: peer.id, name: peer.name,
+    id: peer.id, name: peer.name, ready: peer.ready, profileId: peer.profileId,
+    skin: peer.skin, nameColor: peer.nameColor, rewardRank: peer.rewardRank,
     x: Math.sin(angle) * 18, y: 0, z: Math.cos(angle) * 18,
     yaw: angle, pitch: 0, hp: 100, damage: 0, alive: true,
     shieldUntil: 0, cooldowns: {}, staggerUntil: 0,
@@ -64,9 +68,11 @@ function validMessage(message) {
   const fields = FIELDS[message.type];
   if (Object.keys(message).length !== fields.length || !fields.every((field) => Object.hasOwn(message, field))) return false;
   if (message.type === "create" || message.type === "join") {
-    if (typeof message.name !== "string" || message.name.trim().length < 1 || message.name.length > 32 || /[\u0000-\u001f\u007f]/u.test(message.name)) return false;
+    if (!normalizeName(message.name)) return false;
   }
   if (message.type === "join" && (typeof message.code !== "string" || !/^[A-Z]{6}$/u.test(message.code))) return false;
+  if (message.type === "ready" && typeof message.ready !== "boolean") return false;
+  if (message.type === "authenticate" && typeof message.token !== "string") return false;
   if (message.type === "cast" && (typeof message.spell !== "string" || !Object.hasOwn(SPELLS, message.spell))) return false;
   if (message.type === "input") {
     if (![message.forward, message.right, message.yaw, message.pitch].every(Number.isFinite)) return false;
@@ -197,15 +203,229 @@ function moveProjectiles(room) {
   });
 }
 
-export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
+export function createGameServer({
+  port = 3001, host = "127.0.0.1", countdownSeconds = 8, store = null, dataPath = null,
+  origins = [], now = () => Date.now(), minMatchSeconds = 30, scoredGamesPerWeek = 20,
+} = {}) {
+  if (!Number.isFinite(countdownSeconds) || countdownSeconds <= 0) throw new TypeError("Invalid countdownSeconds");
+  if (!Array.isArray(origins) || origins.some((origin) => typeof origin !== "string" || new URL(origin).origin !== origin)) throw new TypeError("Invalid origins");
+  const ownStore = !store;
+  const profileStore = store ?? createProfileStore({ dataPath, now, minMatchSeconds, scoredGamesPerWeek });
   const rooms = new Map();
-  const server = createServer((request, response) => {
-    response.writeHead(404, { "Content-Type": "text/plain" });
-    response.end("Not found");
+  const httpServer = createServer((request, response) => {
+    void handleHttp(request, response).catch(() => {
+      if (!response.headersSent && !response.destroyed) sendJson(request, response, 500, { error: "internal-error" });
+      else response.destroy();
+    });
   });
-  const wss = new WebSocketServer({ server, path: "/ws", maxPayload: 8192, perMessageDeflate: false });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 8192, perMessageDeflate: false });
+  httpServer.on("upgrade", (request, socket, head) => {
+    if (closing || request.url !== "/ws" || !allowedOrigin(request.headers.origin, request)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
+  });
+  const apiTokens = new Map();
   let closing = false;
   let closePromise;
+
+  function allowedOrigin(origin, request) {
+    if (!origin) return true;
+    if (origins.length) return origins.includes(origin);
+    return origin === `${request.socket.encrypted ? "https" : "http"}://${request.headers.host ?? ""}`;
+  }
+
+  function corsHeaders(request) {
+    const headers = { "Content-Type": "application/json; charset=utf-8", Vary: "Origin", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+    const origin = request.headers.origin;
+    if (origin && allowedOrigin(origin, request)) headers["Access-Control-Allow-Origin"] = origin;
+    return headers;
+  }
+
+  function sendJson(request, response, status, body) {
+    if (response.destroyed) return;
+    const headers = corsHeaders(request);
+    if (status === 429) headers["Retry-After"] = "1";
+    response.writeHead(status, headers);
+    response.end(JSON.stringify({ ...body, meta: BOARD_META }));
+  }
+
+  function allowApi(request) {
+    const timestamp = performance.now();
+    const key = request.socket.remoteAddress ?? "unknown";
+    for (const [address, bucket] of apiTokens) {
+      if (timestamp - bucket.refill > 60000) apiTokens.delete(address);
+    }
+    let bucket = apiTokens.get(key);
+    if (!bucket) {
+      if (apiTokens.size >= 10000) return false;
+      bucket = { tokens: 60, refill: timestamp };
+      apiTokens.set(key, bucket);
+    }
+    bucket.tokens = Math.min(60, bucket.tokens + (timestamp - bucket.refill) / 1000);
+    bucket.refill = timestamp;
+    if (bucket.tokens < 1) return false;
+    bucket.tokens--;
+    return true;
+  }
+
+  function readBody(request, limit = 4096) {
+    return new Promise((resolveBody, rejectBody) => {
+      const chunks = [];
+      let size = 0;
+      request.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > limit) {
+          rejectBody(new Error("payload-too-large"));
+          chunks.length = 0;
+          return;
+        }
+        chunks.push(chunk);
+      });
+      request.on("end", () => resolveBody(Buffer.concat(chunks).toString("utf8")));
+      request.on("error", rejectBody);
+    });
+  }
+
+  function publicProfile(profile) {
+    return {
+      profileId: profile.profileId,
+      name: profile.name,
+      skin: profile.skin,
+      nameColor: profile.nameColor,
+      rewardRank: profile.rewardRank,
+      rewards: profile.rewards,
+    };
+  }
+
+  async function handleHttp(request, response) {
+    const url = new URL(request.url, "http://localhost");
+    if (!url.pathname.startsWith("/api/")) {
+      response.writeHead(404, { "Content-Type": "text/plain" });
+      response.end("Not found");
+      return;
+    }
+    const origin = request.headers.origin;
+    if (!allowedOrigin(origin, request)) {
+      sendJson(request, response, 403, { error: "origin-not-allowed" });
+      return;
+    }
+    if (!allowApi(request)) {
+      request.resume();
+      sendJson(request, response, 429, { error: "rate-limit" });
+      return;
+    }
+    if (request.method === "OPTIONS") {
+      const headers = corsHeaders(request);
+      headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+      headers["Access-Control-Allow-Headers"] = "Content-Type";
+      response.writeHead(204, headers);
+      response.end();
+      return;
+    }
+    if (url.pathname === "/api/profile" && request.method === "POST") {
+      let body;
+      try {
+        body = await readBody(request);
+      } catch (error) {
+        if (error.message === "payload-too-large") {
+          sendJson(request, response, 413, { error: "payload-too-large" });
+          return;
+        }
+        throw error;
+      }
+      let parsed;
+      try {
+        parsed = body ? JSON.parse(body) : {};
+      } catch {
+        sendJson(request, response, 400, { error: "invalid-json" });
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        sendJson(request, response, 400, { error: "invalid-json" });
+        return;
+      }
+      const extraKeys = Object.keys(parsed).filter((key) => !["token", "name"].includes(key));
+      if (extraKeys.length > 0) {
+        sendJson(request, response, 400, { error: "invalid-fields" });
+        return;
+      }
+      const name = "name" in parsed ? normalizeName(parsed.name) : "";
+      if ("name" in parsed && !name) {
+        sendJson(request, response, 400, { error: "invalid-name" });
+        return;
+      }
+      if ("token" in parsed) {
+        if (typeof parsed.token !== "string" || parsed.token.length === 0 || parsed.token.length > 512) {
+          sendJson(request, response, 401, { error: "invalid-token" });
+          return;
+        }
+        const profileId = profileStore.resolveToken(parsed.token);
+        if (!profileId) {
+          sendJson(request, response, 401, { error: "invalid-token" });
+          return;
+        }
+        if (name) profileStore.setName(profileId, name);
+        sendJson(request, response, 200, { profile: publicProfile(profileStore.getProfile(profileId)) });
+        return;
+      }
+      const created = profileStore.createProfile(name || "Wizard");
+      sendJson(request, response, 201, { token: created.token, profile: publicProfile(created.profile) });
+      return;
+    }
+    if (url.pathname === "/api/leaderboard" && request.method === "GET") {
+      sendJson(request, response, 200, profileStore.getLeaderboard(now()));
+      return;
+    }
+    if ((url.pathname === "/api/reward" || url.pathname === "/api/equip") && request.method === "POST") {
+      let body;
+      try {
+        body = await readBody(request);
+      } catch (error) {
+        if (error.message === "payload-too-large") {
+          sendJson(request, response, 413, { error: "payload-too-large" });
+          return;
+        }
+        throw error;
+      }
+      let parsed;
+      try {
+        parsed = body ? JSON.parse(body) : null;
+      } catch {
+        sendJson(request, response, 400, { error: "invalid-json" });
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+        typeof parsed.token !== "string" || typeof parsed.skin !== "string" ||
+        Object.keys(parsed).length !== 2) {
+        sendJson(request, response, 400, { error: "invalid-fields" });
+        return;
+      }
+      const profileId = profileStore.resolveToken(parsed.token);
+      if (!profileId) {
+        sendJson(request, response, 401, { error: "invalid-token" });
+        return;
+      }
+      if (url.pathname === "/api/equip") {
+        const result = profileStore.equip(profileId, parsed.skin);
+        if (!result.ok) {
+          sendJson(request, response, 400, { error: result.reason });
+          return;
+        }
+        sendJson(request, response, 200, { profile: publicProfile(result.profile) });
+        return;
+      }
+      const result = profileStore.claimReward(profileId, parsed.skin);
+      if (!result.ok) {
+        sendJson(request, response, 403, { error: result.reason });
+        return;
+      }
+      sendJson(request, response, 200, { profile: publicProfile(result.profile) });
+      return;
+    }
+    sendJson(request, response, 404, { error: "not-found" });
+  }
 
   function send(peer, message) {
     if (peer.ws.readyState !== WebSocket.OPEN) return;
@@ -224,24 +444,46 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
     for (const peer of room.peers.values()) send(peer, message);
   }
 
+  function appearance(member) {
+    if (!member.profileId) {
+      return { name: member.name, profileId: null, skin: "default", nameColor: null, rewardRank: null };
+    }
+    const profile = profileStore.getProfile(member.profileId);
+    return {
+      name: profile?.name ?? member.name, profileId: member.profileId,
+      skin: profile?.skin ?? "default", nameColor: profile?.nameColor ?? null,
+      rewardRank: profile?.rewardRank ?? null,
+    };
+  }
+
+  function countdown(room) {
+    return room.phase === "countdown" ? Math.max(0, Math.ceil((room.countdownEndsAt - performance.now()) / 1000)) : null;
+  }
+
   function roomMessage(room) {
     broadcast(room, {
       type: "room", code: room.code, host: room.host,
-      players: [...room.peers.values()].map(({ id, name }) => ({ id, name })), phase: room.phase,
+      players: [...room.peers.values()].map((member) => ({ id: member.id, ready: member.ready, ...appearance(member) })),
+      phase: room.phase, countdown: countdown(room), matchId: room.matchId, meta: BOARD_META,
     });
   }
 
   function stateMessage(room) {
     broadcast(room, {
       type: "state", code: room.code, phase: room.phase, time: room.time, radius: room.radius,
+      countdown: countdown(room), matchId: room.matchId, meta: BOARD_META,
       players: [...room.players.values()].map((player) => ({
         id: player.id, name: player.name, x: player.x, y: player.y, z: player.z, yaw: player.yaw,
         hp: player.hp, damage: player.damage, alive: player.alive, shieldUntil: player.shieldUntil,
-        cooldowns: { ...player.cooldowns },
+        cooldowns: { ...player.cooldowns }, ready: player.ready, ...appearance(player),
       })),
       projectiles: room.projectiles.map(({ id, x, y, z, spell }) => ({ id, x, y, z, spell })),
       winner: room.winner,
     });
+  }
+
+  function effectMessage(room, spell, owner, from, to) {
+    broadcast(room, { type: "effect", id: randomUUID(), spell, owner, from, to });
   }
 
   function finish(room) {
@@ -251,6 +493,8 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
     room.phase = "finished";
     room.winner = survivors[0]?.id ?? null;
     room.projectiles = [];
+    settleMatch(room);
+    resetReadiness(room);
     roomMessage(room);
     stateMessage(room);
   }
@@ -259,6 +503,8 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
     const room = peer.room;
     if (!room) return;
     peer.room = null;
+    peer.ready = false;
+    if (room.phase === "fight") room.disconnected = true;
     room.peers.delete(peer.id);
     const player = room.players.get(peer.id);
     if (room.phase === "fight" && player) {
@@ -268,6 +514,7 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
     } else {
       room.players.delete(peer.id);
     }
+    if (room.phase === "countdown") cancelCountdown(room);
     if (room.peers.size === 0) {
       rooms.delete(room.code);
       room.projectiles = [];
@@ -281,34 +528,91 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
   }
 
   function join(peer, room, name) {
-    peer.name = name.trim();
+    peer.name = peer.profileId ? profileStore.getProfile(peer.profileId).name : normalizeName(name);
+    peer.ready = false;
     peer.room = room;
     for (const id of room.players.keys()) {
       if (!room.peers.has(id)) room.players.delete(id);
     }
     room.peers.set(peer.id, peer);
-    room.players.set(peer.id, makePlayer(peer, (room.peers.size - 1) * Math.PI / 2));
+    if (!room.players.has(peer.id)) {
+      room.players.set(peer.id, makePlayer(peer, (room.peers.size - 1) * Math.PI / 2));
+    }
     roomMessage(room);
     stateMessage(room);
   }
 
-  function start(peer) {
+  function startFight(peer) {
     const room = peer.room;
     if (room.host !== peer.id) return error(peer, "Only the host can start");
-    if (room.phase === "fight") return error(peer, "Match already in progress");
+    if (room.phase === "fight" || room.phase === "countdown") return error(peer, "Match already in progress");
     const connected = [...room.peers.values()].filter((member) => member.ws.readyState === WebSocket.OPEN);
     if (connected.length < 2) return error(peer, "At least two connected players required");
+    const notReady = connected.filter((member) => !member.ready);
+    if (notReady.length > 0) return error(peer, "All players must be ready");
+    room.phase = "countdown";
+    room.countdownEndsAt = Date.now() + countdownSeconds * 1000;
+    roomMessage(room);
+    stateMessage(room);
+  }
+
+  function beginFight(room) {
     room.phase = "fight";
     room.time = 0;
     room.radius = 40;
     room.winner = null;
     room.projectiles = [];
+    room.matchId = randomUUID();
+    room.settled = false;
+    room.disconnected = false;
     room.players.clear();
-    connected.forEach((member, index) => {
-      room.players.set(member.id, makePlayer(member, index * TAU / connected.length));
+    let index = 0;
+    for (const member of room.peers.values()) {
+      const player = makePlayer(member, index * TAU / room.peers.size);
+      player.ready = member.ready;
+      room.players.set(member.id, player);
       member.inputTokens = 2;
       member.inputRefill = performance.now();
+      index++;
+    }
+    roomMessage(room);
+    stateMessage(room);
+  }
+
+  function settleMatch(room) {
+    if (room.settled) return;
+    room.settled = true;
+    if (!room.matchId) return;
+    const participants = [...room.players.values()]
+      .filter((player) => player.profileId)
+      .map((player) => player.profileId);
+    const winner = room.winner ? room.players.get(room.winner) : null;
+    profileStore.recordMatch({
+      matchId: room.matchId,
+      winnerProfileId: winner?.profileId ?? null,
+      participants,
+      duration: room.time,
+      disconnected: room.disconnected || [...room.peers.values()].some((member) => member.ws.readyState !== WebSocket.OPEN),
     });
+  }
+
+  function resetReadiness(room) {
+    for (const member of room.peers.values()) member.ready = false;
+    for (const player of room.players.values()) player.ready = false;
+  }
+
+  function cancelCountdown(room) {
+    room.phase = "lobby";
+    room.countdownEndsAt = 0;
+    resetReadiness(room);
+  }
+
+  function readyHandler(peer, ready) {
+    const room = peer.room;
+    if (room.phase === "fight") return error(peer, "Readiness cannot change during combat");
+    peer.ready = ready;
+    room.players.get(peer.id).ready = ready;
+    if (room.phase === "countdown" && !ready) cancelCountdown(room);
     roomMessage(room);
     stateMessage(room);
   }
@@ -343,6 +647,7 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
       const end = { x: from.x + aim.x * 70, y: from.y + aim.y * 70, z: from.z + aim.z * 70 };
       const hit = firstHit(room, from, end, player.id, 0);
       if (hit) hurt(room, hit.player, spec.damage, spec.kb, aim);
+      effectMessage(room, spell, player.id, from, end);
       finish(room);
       return;
     }
@@ -353,14 +658,52 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
     });
   }
 
+  function authenticate(peer, message) {
+    if (peer.profileId) {
+      error(peer, "Already authenticated");
+      return;
+    }
+    const token = typeof message.token === "string" ? message.token.trim() : "";
+    if (!token) {
+      error(peer, "Invalid token");
+      return;
+    }
+    const profileId = profileStore.resolveToken(token);
+    if (!profileId) {
+      error(peer, "Invalid token");
+      return;
+    }
+    const activePeer = profilePeers.get(profileId);
+    if (activePeer && activePeer !== peer) {
+      error(peer, "Profile already connected");
+      return;
+    }
+    const profile = profileStore.getProfile(profileId);
+    peer.profileId = profileId;
+    peer.name = profile.name;
+    peer.skin = profile.skin;
+    peer.nameColor = profile.nameColor;
+    peer.rewardRank = profile.rewardRank;
+    profilePeers.set(profileId, peer);
+    send(peer, { type: "profile", profile: publicProfile(profile) });
+  }
+
+  const profilePeers = new Map();
+
   function handle(peer, message) {
     if (message.type === "leave") { leave(peer); return; }
+    if (message.type === "authenticate") { authenticate(peer, message); return; }
     if (message.type === "create") {
       if (peer.room) return error(peer, "Leave the current room first");
+      if (peer.profileId && peerInRoom(peer.profileId)) return error(peer, "Profile already in a room");
       if (rooms.size >= 100) return error(peer, "Room limit reached");
       let code;
       do { code = makeCode(); } while (rooms.has(code));
-      const room = { code, host: peer.id, peers: new Map(), players: new Map(), projectiles: [], phase: "lobby", time: 0, radius: 40, winner: null };
+      const room = {
+        code, host: peer.id, peers: new Map(), players: new Map(), projectiles: [],
+        phase: "lobby", time: 0, radius: 40, winner: null, matchId: null, settled: false,
+        countdownEndsAt: 0,
+      };
       rooms.set(code, room);
       join(peer, room, message.name);
       return;
@@ -369,13 +712,15 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
       if (peer.room) return error(peer, "Leave the current room first");
       const room = rooms.get(message.code);
       if (!room) return error(peer, "Room not found");
-      if (room.phase === "fight") return error(peer, "Match already in progress");
+      if (room.phase === "fight" || room.phase === "countdown") return error(peer, "Match already in progress");
       if (room.peers.size >= 4) return error(peer, "Room is full");
+      if (peer.profileId && peerInRoom(peer.profileId)) return error(peer, "Profile already in a room");
       join(peer, room, message.name);
       return;
     }
     if (!peer.room) return error(peer, "Join a room first");
-    if (message.type === "start") { start(peer); return; }
+    if (message.type === "start") { startFight(peer); return; }
+    if (message.type === "ready") { readyHandler(peer, message.ready); return; }
     if (message.type === "cast") { cast(peer, message.spell); return; }
     const room = peer.room;
     const player = room.players.get(peer.id);
@@ -391,13 +736,27 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
     player.inputAt = room.time;
   }
 
+  function peerInRoom(profileId) {
+    for (const room of rooms.values()) {
+      for (const member of room.peers.values()) {
+        if (member.profileId === profileId) return true;
+      }
+    }
+    return false;
+  }
+
   wss.on("connection", (ws) => {
     if (closing) { ws.terminate(); return; }
     const now = performance.now();
-    const peer = { id: randomUUID(), name: "", ws, room: null, alive: true, tokens: 80, refill: now, inputTokens: 2, inputRefill: now, limited: false };
+    const peer = {
+      id: randomUUID(), name: "", ws, room: null, alive: true, tokens: 80, refill: now,
+      inputTokens: 2, inputRefill: now, limited: false, ready: false,
+      profileId: null, skin: "default", nameColor: null, rewardRank: null,
+    };
+    ws.gamePeer = peer;
     ws.on("pong", () => { peer.alive = true; });
-    ws.on("close", () => { leave(peer); });
-    ws.on("error", () => { leave(peer); ws.terminate(); });
+    ws.on("close", () => { leave(peer); releaseProfile(peer); });
+    ws.on("error", () => { leave(peer); releaseProfile(peer); ws.terminate(); });
     ws.on("message", (data, binary) => {
       if (closing || peer.limited) return;
       const received = performance.now();
@@ -407,6 +766,7 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
         peer.limited = true;
         error(peer, "Rate limit exceeded");
         leave(peer);
+        releaseProfile(peer);
         ws.close(1008, "Rate limit exceeded");
         return;
       }
@@ -418,9 +778,21 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
       if (!validMessage(message)) return error(peer, "Invalid message");
       handle(peer, message);
     });
-    ws.gamePeer = peer;
     send(peer, { type: "welcome", id: peer.id });
   });
+
+  function releaseProfile(peer) {
+    if (!peer.profileId) return;
+    if (profilePeers.get(peer.profileId) === peer) profilePeers.delete(peer.profileId);
+  }
+
+  function roomClock() {
+    return nowSeconds();
+  }
+
+  function nowSeconds() {
+    return Date.now() / 1000;
+  }
 
   let previous = performance.now();
   let accumulator = 0;
@@ -433,6 +805,9 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
       accumulator -= DT;
       ticks++;
       for (const room of rooms.values()) {
+        if (room.phase === "countdown" && Date.now() >= room.countdownEndsAt) {
+          beginFight(room);
+        }
         if (room.phase === "fight") {
           room.time += DT;
           room.radius = Math.max(8, 40 - room.time * 0.55);
@@ -441,6 +816,7 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
           }
           moveProjectiles(room);
           finish(room);
+          if (room.phase === "finished" && !room.settled) settleMatch(room);
         }
         if (ticks % 2 === 0) stateMessage(room);
       }
@@ -453,6 +829,7 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
       const peer = ws.gamePeer;
       if (!peer || !peer.alive || ws.readyState !== WebSocket.OPEN) {
         if (peer) leave(peer);
+        releaseProfile(peer);
         ws.terminate();
         continue;
       }
@@ -462,15 +839,15 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
   }, 15000);
   heartbeat.unref();
 
-  const ready = new Promise((resolveReady, rejectReady) => {
-    server.once("listening", resolveReady);
-    server.once("error", rejectReady);
+  const readyPromise = new Promise((resolveReady, rejectReady) => {
+    httpServer.once("listening", resolveReady);
+    httpServer.once("error", rejectReady);
   });
-  ready.catch(() => {
+  readyPromise.catch(() => {
     clearInterval(tickTimer);
     clearInterval(heartbeat);
   });
-  server.listen(port, host);
+  httpServer.listen(port, host);
 
   function close() {
     if (closePromise) return closePromise;
@@ -478,30 +855,31 @@ export function createGameServer({ port = 3001, host = "127.0.0.1" } = {}) {
     clearInterval(tickTimer);
     clearInterval(heartbeat);
     closePromise = (async () => {
-      await ready.catch(() => {});
+      await readyPromise.catch(() => {});
       for (const ws of wss.clients) ws.terminate();
       rooms.clear();
       await Promise.all([
         new Promise((done) => wss.close(done)),
         new Promise((done, reject) => {
-          server.close((err) => err && err.code !== "ERR_SERVER_NOT_RUNNING" ? reject(err) : done());
-          server.closeAllConnections();
+          httpServer.close((err) => err && err.code !== "ERR_SERVER_NOT_RUNNING" ? reject(err) : done());
+          httpServer.closeAllConnections();
         }),
       ]);
+      if (ownStore && profileStore?.close) profileStore.close();
     })();
     return closePromise;
   }
 
-  return { server, wss, rooms, close };
+  return { server: httpServer, wss, rooms, close, store: profileStore, profilePeers };
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   const port = Number(process.env.PORT ?? 3001);
   const host = process.env.HOST ?? "127.0.0.1";
-  const game = createGameServer({ port, host });
+  const game = createGameServer({ port, host, dataPath: process.env.DATA_PATH ?? "data/profiles.sqlite" });
   game.server.once("listening", () => {
     const address = game.server.address();
-    console.log(`WebSocket server listening on ${host}:${address.port}/ws`);
+    console.log(`Game server listening on ${host}:${address.port} (ws /ws, api /api/*)`);
   });
   game.server.on("error", (error) => {
     console.error(error.message);

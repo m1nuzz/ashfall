@@ -152,7 +152,12 @@ let onlineState = null;
 let onlineInputTime = 0;
 const remoteEntities = new Map();
 const remoteProjectiles = new Map();
-const multiplayer = createMultiplayer({ onState: receiveOnlineState, onMatch: beginOnlineMatch, onLeave: returnToMenu });
+const multiplayer = createMultiplayer({ onState: receiveOnlineState, onMatch: beginOnlineMatch, onLeave: returnToMenu, onEffect: event => {
+  const from = new THREE.Vector3(event.from.x, event.from.y, event.from.z);
+  const to = new THREE.Vector3(event.to.x, event.to.y, event.to.z);
+  spawnBolt(from, to);
+  if (event.owner !== onlineId) playAt('lightning', from);
+} });
 const costs = { fireball: 5, lightning: 7, homing: 6, meteor: 8, blink: 6, shield: 6 };
 for (const s of [...Object.values(SPELL_DEFS), ...Object.values(UTIL_DEFS)]) {
   s.cost = costs[s.id];
@@ -272,6 +277,8 @@ function receiveOnlineState(snapshot, id) {
   const first = !onlineState;
   onlineState = snapshot;
   onlineId = id;
+  const previousPhase = phase;
+  if (['countdown', 'lobby', 'finished'].includes(snapshot.phase)) phase = snapshot.phase === 'countdown' ? 'online-countdown' : phase === 'online-finished' ? phase : previousPhase;
   gameTime = snapshot.time;
   arenaRadius = snapshot.radius;
   arena.scale.setScalar(arenaRadius / ARENA_RADIUS);
@@ -479,12 +486,19 @@ function fireProjectile(owner, from, dir, spec) {
 }
 
 function spawnBolt(from, to) {
-  const line = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]),
-    new THREE.LineBasicMaterial({ color: 0x99ddff, transparent: true, opacity: 0.9 })
-  );
-  scene.add(line);
-  bolts.push({ line, born: gameTime });
+  const points = [];
+  for (let i = 0; i <= 24; i++) {
+    const point = from.clone().lerp(to, i / 24);
+    if (i && i < 24) point.add(new THREE.Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6));
+    points.push(point);
+  }
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.95 }));
+  const flash = new THREE.PointLight(0x8acaff, 20, 16);
+  flash.position.copy(to);
+  const group = new THREE.Group();
+  group.add(line, flash);
+  scene.add(group);
+  bolts.push({ line: group, born: gameTime, expires: performance.now() + 180 });
 }
 
 function hitscan(from, dir) {
@@ -832,6 +846,9 @@ function tick() {
     updateSpellbar();
   }
 
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    if (performance.now() > bolts[i].expires) { disposeObject(bolts[i].line); bolts.splice(i, 1); }
+  }
   if (phase !== "fight") ui.lavaWarn.hidden = true;
   hand.visible = phase === "fight";
   castPulse = Math.max(0, castPulse - dt * 4);

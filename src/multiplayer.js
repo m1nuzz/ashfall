@@ -1,4 +1,6 @@
-export function createMultiplayer({ onState, onLeave, onMatch }) {
+import { ensureProfile, mountProfile } from './profile.js';
+
+export function createMultiplayer({ onState, onLeave, onMatch, onEffect }) {
   const el = id => document.getElementById(id);
   let socket = null;
   let identity = null;
@@ -20,11 +22,18 @@ export function createMultiplayer({ onState, onLeave, onMatch }) {
     el('room-code').textContent = room.code;
     el('room-players').replaceChildren(...room.players.map(peer => {
       const row = document.createElement('li');
-      row.textContent = `${peer.name}${peer.id === identity ? ' · ты' : ''}${peer.id === room.host ? ' · хозяин' : ''}`;
+      row.textContent = `${peer.name}${peer.id === identity ? ' · ты' : ''}${peer.id === room.host ? ' · хозяин' : ''} · ${peer.ready ? 'ГОТОВ' : 'подготовка'}`;
+      if (peer.nameColor) { row.style.color = peer.nameColor; row.className = 'champion-name'; }
       return row;
     }));
     const host = room.host === identity;
-    el('start-online').disabled = !host || room.players.length < 2 || room.phase === 'fight';
+    el('start-online').disabled = !host || room.players.length < 2 || !room.players.every(p => p.ready) || !['lobby', 'finished'].includes(room.phase);
+    const ready = room.players.find(p => p.id === identity)?.ready;
+    el('ready-online').textContent = ready ? 'СНЯТЬ ГОТОВНОСТЬ' : 'Я ГОТОВ';
+    el('ready-online').disabled = room.phase === 'fight';
+    el('room-countdown').hidden = room.phase !== 'countdown';
+    el('countdown-value').textContent = Math.ceil(room.countdown || 0);
+    el('countdown-meter').value = room.countdown || 0;
     el('start-online').textContent = room.phase === 'finished' ? 'РЕВАНШ →' : 'НАЧАТЬ БОЙ →';
     if (room.phase === 'lobby') status(host ? 'Поделись кодом. Для старта нужно минимум 2 игрока.' : 'Ожидание старта от хозяина комнаты.');
   }
@@ -41,12 +50,18 @@ export function createMultiplayer({ onState, onLeave, onMatch }) {
     el('room-lobby').hidden = true;
     if (notify) onLeave();
   }
-  function connect(action) {
-    if (pending) return;
+  let connecting = false;
+  async function connect(action) {
+    if (pending || connecting) return;
     const name = el('player-name').value.trim().slice(0, 32);
     if (!name) return status('Укажи имя мага.');
     if (action === 'join' && !/^[A-Z]{6}$/.test(el('room-code-input').value.trim().toUpperCase())) return status('Код состоит из шести латинских букв.');
-    pending = action === 'create' ? { type: 'create', name } : { type: 'join', name, code: el('room-code-input').value.trim().toUpperCase() };
+    connecting = true;
+    let account;
+    try { account = await ensureProfile(name); }
+    catch (error) { status(error.message); return; }
+    finally { connecting = false; }
+    pending = action === 'create' ? { type: 'create', name: account.profile.name } : { type: 'join', name: account.profile.name, code: el('room-code-input').value.trim().toUpperCase() };
     if (socket?.readyState === WebSocket.OPEN) { send(pending); pending = null; return; }
     status('Подключение к серверу…');
     socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
@@ -59,12 +74,17 @@ export function createMultiplayer({ onState, onLeave, onMatch }) {
       if (socket !== current) return;
       let message;
       try { message = JSON.parse(event.data); } catch { return; }
-      if (message.type === 'welcome') { identity = message.id; if (pending) send(pending); pending = null; }
+      if (message.type === 'welcome') { identity = message.id; send({ type: 'authenticate', token: account.token }); }
+      if (message.type === 'profile') { if (pending) send(pending); pending = null; }
+      if (message.type === 'effect') onEffect?.(message);
       if (message.type === 'error') { pending = null; status(translations[message.message] || message.message); }
       if (message.type === 'room') { room = message; paintRoom(); }
       if (message.type === 'state') {
         if (!room) return;
         room.phase = message.phase;
+        room.countdown = message.countdown;
+        room.players = message.players;
+        if (message.phase === 'countdown' || message.phase === 'lobby') paintRoom();
         if (message.phase === 'fight' && lastPhase !== 'fight') {
           el('online-panel').hidden = true;
           onMatch(identity);
@@ -91,6 +111,8 @@ export function createMultiplayer({ onState, onLeave, onMatch }) {
   el('online-btn').addEventListener('click', () => { el('online-panel').hidden = false; });
   el('create-room').addEventListener('click', () => connect('create'));
   el('join-room').addEventListener('click', () => connect('join'));
+  mountProfile(() => disconnect());
+  el('ready-online').addEventListener('click', () => send({ type: 'ready', ready: !room?.players.find(p => p.id === identity)?.ready }));
   el('start-online').addEventListener('click', () => send({ type: 'start' }));
   el('leave-online').addEventListener('click', () => disconnect());
   el('copy-room').addEventListener('click', async () => {

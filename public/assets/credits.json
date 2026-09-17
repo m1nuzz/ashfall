@@ -48,7 +48,183 @@
       ]
     },
     {
+      "id": "spookymodem_torch",
+      "name": "Torch Fire Spell",
+      "type": "audio",
+      "author": "spookymodem",
+      "provider": "OpenGameArt",
+      "sourceUrl": "https://opengameart.org/content/torch-fire-spell",
+      "downloadUrl": "https://opengameart.org/sites/default/files/Waving%20Torch.wav",
+      "license": "CC-BY-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "licenseEvidenceUrl": "https://opengameart.org/content/torch-fire-spell",
+      "licenseVerifiedDate": "2026-09-17",
+      "attribution": "Torch Fire Spell / Waving Torch.wav by spookymodem, OpenGameArt, CC BY 3.0. Edited for gameplay; no endorsement implied.",
+      "sourceDescription": "Waving a torch at your enemies or using a fire spell.",
+      "modifications": "Original retained unchanged. Derived cues use natural-speed torch excerpts, mono downmix, filtering, fades, and peak normalization. Fireball mixes fireplace crackles; meteor mixes thunder. Exact processing and output hashes are in recorded_flame_thunder_cues and /assets/audio/cue-manifest.json.",
+      "files": [
+        {
+          "filename": "source-waving-torch.wav",
+          "originalFilename": "Waving Torch.wav",
+          "localPath": "/assets/audio/source-waving-torch.wav",
+          "bytes": 757804,
+          "sha256": "a027961cae4ffdeccfd497788b229dfe32547dcb32f30b8e0429976ae9e9ef57",
+          "durationSeconds": 4.295692,
+          "role": "source only; not loaded at runtime"
+        }
+      ]
+    },
+    {
+      "id": "inspectorj_close_thunder",
+      "name": "Thunder, Very Close, Rain, 01",
+      "type": "audio",
+      "author": "InspectorJ",
+      "provider": "OpenGameArt",
+      "sourceUrl": "https://opengameart.org/content/thunder-very-close-rain-01",
+      "downloadUrl": "https://opengameart.org/sites/default/files/Thunder%2C%20Very%20Close%2C%20Rain%2C%2001.wav",
+      "license": "CC-BY-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "licenseEvidenceUrl": "https://opengameart.org/content/thunder-very-close-rain-01",
+      "licenseVerifiedDate": "2026-09-17",
+      "attribution": "\"Thunder, Very Close, Rain, 01.wav\" by InspectorJ (www.jshaw.co.uk). Licensed CC BY 3.0 via OpenGameArt. Trimmed, filtered, faded and normalized; meteor adds torch. No endorsement implied.",
+      "sourceDescription": "A single close thunder strike with rain in the background. Recorded with a Zoom H1 on 15th September 2016, England.",
+      "modifications": "Original retained unchanged. Two lightning edits of the SAME recorded strike, not two independent recordings. Meteor uses a low-pass thunder layer; victory a quiet filtered rumble, not a melody. Exact processing and output hashes are in recorded_flame_thunder_cues and /assets/audio/cue-manifest.json.",
+      "files": [
+        {
+          "filename": "source-thunder-close.wav",
+          "originalFilename": "Thunder, Very Close, Rain, 01.wav",
+          "localPath": "/assets/audio/source-thunder-close.wav",
+          "bytes": 2256508,
+          "sha256": "b62c7184cf3241862698a596c0c824cfd0717a6cec0089436d46270fe94cb00a",
+          "durationSeconds": 12.790952,
+          "role": "source only; not loaded at runtime"
+        }
+      ]
+    },
+    {
+      "id": "antumdeluge_fire_crackling",
+      "name": "Fire Crackling",
+      "type": "audio",
+      "author": "AntumDeluge",
+      "provider": "OpenGameArt",
+      "sourceUrl": "https://opengameart.org/content/fire-crackling",
+      "downloadUrl": "https://opengameart.org/sites/default/files/fire-1.wav",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licenseEvidenceUrl": "https://opengameart.org/content/fire-crackling",
+      "licenseVerifiedDate": "2026-09-17",
+      "sourceDescription": "A popping and crackling fireplace.",
+      "modifications": "Original WAV retained unchanged. Excerpts mixed into both fireball cues after filtering, attenuation and fades. Exact processing and output hashes are in recorded_flame_thunder_cues and /assets/audio/cue-manifest.json.",
+      "files": [
+        {
+          "filename": "source-fire-crackling.wav",
+          "originalFilename": "fire-1.wav",
+          "localPath": "/assets/audio/source-fire-crackling.wav",
+          "bytes": 253232,
+          "sha256": "26702de8a195bcbafeae72034861d875a1b7917168a25106f4e1957ecdddf7e5",
+          "durationSeconds": 2.870612,
+          "role": "source only; not loaded at runtime"
+        }
+      ]
+    },
+    {
+      "id": "recorded_flame_thunder_cues",
+      "name": "Edited flame and thunder gameplay cues",
+      "type": "audio",
+      "author": "spookymodem; InspectorJ; AntumDeluge (source authors; see per-file sourceIds)",
+      "provider": "Local derivatives of OpenGameArt assets",
+      "sourceUrl": "https://opengameart.org/content/torch-fire-spell",
+      "license": "CC-BY-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "processingManifest": "/assets/audio/cue-manifest.json",
+      "modifications": "ffmpeg 9.0.1-full_build-www.gyan.dev. Each mix is converted to mono 48000 Hz float PCM, its measured peak normalized to -4 dBFS using the listed gain, then alimiter=limit=0.7079458:attack=2:release=40:level=false:latency=true; encoded libvorbis -q:a 6, metadata stripped. No synthesis, pitch shifting or speed changes. Times below are seconds; filter frequencies are Hz. Fade times are relative to trimmed excerpts. Exact executable filter graphs and measured decoded waveform statistics are retained in processingManifest. No listening review was performed.",
+      "runtimeMapping": {
+        "fireball": ["fireball-01.ogg", "fireball-02.ogg"],
+        "homing": ["ember-whoosh.ogg"],
+        "lightning": ["lightning-01.ogg", "lightning-02.ogg"],
+        "meteor": ["meteor-rumble.ogg"],
+        "hit": ["hit.ogg"],
+        "blink": ["ember-whoosh.ogg"],
+        "shield": ["ember-whoosh.ogg"],
+        "ui": ["ui.ogg"],
+        "victory": ["round-end.ogg"]
+      },
+      "files": [
+        {
+          "role": "fireball variant 1",
+          "filename": "fireball-01.ogg",
+          "localPath": "/assets/audio/fireball-01.ogg",
+          "sourceIds": ["spookymodem_torch", "antumdeluge_fire_crackling"],
+          "changes": "Torch start 1.92 duration 0.98, HP65 LP10000, fade-in 0.008, fade-out start 0.64 duration 0.34. Fireplace start 0.3 duration 0.98, HP180 LP8000, gain 0.7, fade-in 0.025, fade-out start 0.3 duration 0.68. Sum without automatic normalization; final gain +5.13260746 dB.",
+          "bytes": 16215,
+          "durationSeconds": 0.9773333333333334,
+          "sha256": "4cf37221c24f8f1fbdde963cb6ea3508b6af54e50680e6b0d46710fd065c6733"
+        },
+        {
+          "role": "fireball variant 2",
+          "filename": "fireball-02.ogg",
+          "localPath": "/assets/audio/fireball-02.ogg",
+          "sourceIds": ["spookymodem_torch", "antumdeluge_fire_crackling"],
+          "changes": "Torch start 3.46 duration 0.78, HP65 LP10000, fade-in 0.008, fade-out start 0.47 duration 0.31. Fireplace start 1.2 duration 0.78, HP180 LP8000, gain 0.8, fade-in 0.025, fade-out start 0.25 duration 0.53. Sum without automatic normalization; final gain +3.30130155 dB.",
+          "bytes": 11818,
+          "durationSeconds": 0.7773333333333333,
+          "sha256": "5e705bcbfed4afbcbab1bb977f504ff6945b665357eddce374e546418d7fff71"
+        },
+        {
+          "role": "lightning variant 1",
+          "filename": "lightning-01.ogg",
+          "localPath": "/assets/audio/lightning-01.ogg",
+          "sourceIds": ["inspectorj_close_thunder"],
+          "changes": "Thunder start 1.04 duration 2.1, HP40 LP11000, fade-in 0.002, fade-out start 1.35 duration 0.75. Final gain -4.04164888 dB.",
+          "bytes": 27607,
+          "durationSeconds": 2.1,
+          "sha256": "fcdbc0ee82aba97e9cb781bb3112b626c105787c46275ebd9f0f945315fca307"
+        },
+        {
+          "role": "lightning variant 2 (same strike, alternate edit)",
+          "filename": "lightning-02.ogg",
+          "localPath": "/assets/audio/lightning-02.ogg",
+          "sourceIds": ["inspectorj_close_thunder"],
+          "changes": "Thunder start 1.49 duration 1.9, HP45 LP10500, fade-in 0.002, fade-out start 1.1 duration 0.8. Final gain -4.03254904 dB.",
+          "bytes": 24221,
+          "durationSeconds": 1.9,
+          "sha256": "0d17131a3740749c2499969428e92c4e1995623146eacd8c21a82bb158b7c3dd"
+        },
+        {
+          "role": "meteor",
+          "filename": "meteor-rumble.ogg",
+          "localPath": "/assets/audio/meteor-rumble.ogg",
+          "sourceIds": ["inspectorj_close_thunder", "spookymodem_torch"],
+          "changes": "Thunder start 1.49 duration 2.3, HP35 LP2400, fade-in 0.012, fade-out start 1.2 duration 1.1. Torch start 1.92 duration 0.98, HP80 LP7000, gain 1.4, fade-in 0.008, fade-out start 0.45 duration 0.53. Sum to longest input without automatic normalization; final gain -7.64949687 dB.",
+          "bytes": 25460,
+          "durationSeconds": 2.3,
+          "sha256": "3c3c805c2973fda8e14d6c6e7198c9888350fe7112594bbae8f2b7ff83fdb748"
+        },
+        {
+          "role": "homing, blink, shield",
+          "filename": "ember-whoosh.ogg",
+          "localPath": "/assets/audio/ember-whoosh.ogg",
+          "sourceIds": ["spookymodem_torch"],
+          "changes": "Torch start 3.46 duration 0.65, HP100 LP6500, fade-in 0.012, fade-out start 0.35 duration 0.3. Final gain +6.99802353 dB.",
+          "bytes": 10610,
+          "durationSeconds": 0.6473333333333333,
+          "sha256": "f85cd53e14789d9cdc49f295026600926798c19d0c5e50f80389cd4c6e5ad247"
+        },
+        {
+          "role": "victory (restrained rumble, no jingle)",
+          "filename": "round-end.ogg",
+          "localPath": "/assets/audio/round-end.ogg",
+          "sourceIds": ["inspectorj_close_thunder"],
+          "changes": "Thunder start 2.75 duration 1.25, HP55 LP1600, fade-in 0.06, fade-out start 0.35 duration 0.9. Final gain +3.63810827 dB; runtime cue level 0.32.",
+          "bytes": 15784,
+          "durationSeconds": 1.25,
+          "sha256": "56f6355bb99fcecbde31200efb5541e662760a458de2b1a4d43ae620b7a881b9"
+        }
+      ]
+    },
+    {
       "id": "kenney_digital_audio",
+      "status": "Retained legacy files only; none are loaded or mapped by src/audio.js.",
       "name": "Digital Audio",
       "type": "audio",
       "author": "Kenney Vleugels",
@@ -163,6 +339,7 @@
     },
     {
       "id": "kenney_music_jingles",
+      "status": "Retained legacy file only; not loaded or mapped. Victory now uses round-end.ogg; no menu music is started.",
       "name": "Music Jingles",
       "type": "audio",
       "author": "Kenney Vleugels",

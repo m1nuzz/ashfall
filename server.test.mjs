@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { WebSocket } from "ws";
 import { createGameServer } from "./server.mjs";
+import { BOARD_META, WEEK_MS, createProfileStore, weekStart } from "./profile-store.mjs";
 
-async function setup(t) {
-  const game = createGameServer({ port: 0 });
+async function setup(t, options = {}) {
+  const game = createGameServer({ port: 0, countdownSeconds: 0.05, ...options });
   const clients = [];
   t.after(async () => {
     for (const client of clients) client.ws.terminate();
@@ -69,8 +73,14 @@ async function fight(t) {
   const guest = await context.connect();
   const room = await host.request({ type: "create", name: "Host" }, "room");
   await guest.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  await setReady(host);
+  await setReady(guest);
   const state = await host.request({ type: "start" }, "state", (message) => message.phase === "fight");
   return { ...context, host, guest, code: room.code, state };
+}
+
+async function setReady(client, ready = true) {
+  return client.request({ type: "ready", ready }, "room", (message) => message.players.some((player) => player.id === client.id && player.ready === ready));
 }
 
 function input(overrides = {}) {
@@ -99,18 +109,23 @@ test("welcome, create, join, host authorization, fight rejection and exact snaps
   assert.deepEqual(Object.keys(host.messages[0]).sort(), ["id", "type"]);
   const room = await host.request({ type: "create", name: " Host " }, "room");
   assert.match(room.code, /^[A-Z]{6}$/u);
-  assert.deepEqual(room, { type: "room", code: room.code, host: host.id, players: [{ id: host.id, name: "Host" }], phase: "lobby" });
+  assert.deepEqual(room, {
+    type: "room", code: room.code, host: host.id, phase: "lobby", countdown: null, matchId: null, meta: BOARD_META,
+    players: [{ id: host.id, name: "Host", ready: false, profileId: null, skin: "default", nameColor: null, rewardRank: null }],
+  });
   await host.request({ type: "start" }, "error", (message) => message.message === "At least two connected players required");
   await guest.request({ type: "join", code: room.code, name: "Guest" }, "room", (message) => message.players.length === 2);
   await guest.request({ type: "start" }, "error", (message) => message.message === "Only the host can start");
+  await setReady(host);
+  await setReady(guest);
   const state = await host.request({ type: "start" }, "state", (message) => message.phase === "fight");
   assert.equal(state.time, 0);
   assert.equal(state.radius, 40);
   assert.equal(state.winner, null);
-  assert.deepEqual(Object.keys(state).sort(), ["code", "phase", "players", "projectiles", "radius", "time", "type", "winner"]);
+  assert.deepEqual(Object.keys(state).sort(), ["code", "countdown", "matchId", "meta", "phase", "players", "projectiles", "radius", "time", "type", "winner"]);
   assert.equal(state.players.length, 2);
   for (const player of state.players) {
-    assert.deepEqual(Object.keys(player).sort(), ["alive", "cooldowns", "damage", "hp", "id", "name", "shieldUntil", "x", "y", "yaw", "z"]);
+    assert.deepEqual(Object.keys(player).sort(), ["alive", "cooldowns", "damage", "hp", "id", "name", "nameColor", "profileId", "ready", "rewardRank", "shieldUntil", "skin", "x", "y", "yaw", "z"]);
     assert.equal(player.hp, 100);
     assert.equal(player.damage, 0);
     assert.equal(player.alive, true);
@@ -288,6 +303,8 @@ test("disconnect marks dead, reassigns host, ends match, permits restart and cle
   await guest.request({ type: "start" }, "error", (message) => message.message === "At least two connected players required");
   const newcomer = await connect();
   await newcomer.request({ type: "join", code, name: "New" }, "room");
+  await setReady(guest);
+  await setReady(newcomer);
   const restarted = await guest.request({ type: "start" }, "state", (message) => message.phase === "fight");
   assert.equal(restarted.time, 0);
   assert.equal(restarted.radius, 40);
@@ -376,4 +393,301 @@ test("only /ws upgrades and close is idempotent with active peers", async (t) =>
   await closed;
   assert.equal(game.server.listening, false);
   assert.equal(game.rooms.size, 0);
+});
+
+function api(game, path, { method = "GET", body, origin } = {}) {
+  return fetch(`http://127.0.0.1:${game.server.address().port}${path}`, {
+    method, headers: { "content-type": "application/json", ...(origin ? { origin } : {}) },
+    body: method === "GET" ? undefined : typeof body === "string" ? body : JSON.stringify(body ?? {}),
+  });
+}
+
+test("profile API creates, recovers, rejects bad tokens and hides token material", async (t) => {
+  const { game } = await setup(t);
+  const created = await (await fetch(`http://127.0.0.1:${game.server.address().port}/api/profile`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+  assert.match(created.token, /^[A-Za-z0-9_-]{43}$/u);
+  assert.equal(typeof created.profile.profileId, "string");
+  assert.equal(created.profile.name, "Wizard");
+  assert.deepEqual(Object.keys(created.profile).sort(), ["name", "nameColor", "profileId", "rewardRank", "rewards", "skin"]);
+  assert.ok(!JSON.stringify(created).match(/eyJ|sha|hash/u));
+  const recovered = await (await fetch(`http://127.0.0.1:${game.server.address().port}/api/profile`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: created.token, name: "Renamed" }),
+  })).json();
+  assert.equal(recovered.profile.name, "Renamed");
+  assert.equal(recovered.profile.profileId, created.profile.profileId);
+  const bad = await fetch(`http://127.0.0.1:${game.server.address().port}/api/profile`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "forged-token-forged-token-forged-token-forged" }),
+  });
+  assert.equal(bad.status, 401);
+  assert.equal((await bad.json()).error, "invalid-token");
+  const invalidName = await fetch(`http://127.0.0.1:${game.server.address().port}/api/profile`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "a\u0000b" }),
+  });
+  assert.equal(invalidName.status, 400);
+  const oversized = await fetch(`http://127.0.0.1:${game.server.address().port}/api/profile`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x".repeat(4096) }),
+  });
+  assert.equal(oversized.status, 413);
+  const body = await oversized.json();
+  assert.equal(body.error, "payload-too-large");
+  assert.equal(body.meta.community, true);
+});
+
+test("leaderboard exposes current week top20, last week top3 and community meta", async (t) => {
+  const { game } = await setup(t);
+  const board = await (await fetch(`http://127.0.0.1:${game.server.address().port}/api/leaderboard`)).json();
+  assert.equal(board.weekStart, weekStart());
+  assert.equal(board.lastWeek.weekEnd, board.weekStart);
+  assert.deepEqual(board.top20, []);
+  assert.deepEqual(board.lastWeek.top3, []);
+  assert.equal(board.meta.ranked, false);
+  assert.deepEqual(Object.keys(board).sort(), ["lastWeek", "meta", "top20", "weekEnd", "weekStart"]);
+});
+
+test("reward and equip endpoints enforce eligibility, ownership and idempotence", async (t) => {
+  const clock = mutableClock();
+  const store = createProfileStore({ now: clock });
+  const { game } = await setup(t, { store });
+  const base = `http://127.0.0.1:${game.server.address().port}`;
+  const post = (path, body) => fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const created = await (await post("/api/profile", {})).json();
+  const unauth = await post("/api/reward", { token: "forged-forged-forged-forged-forged-f", skin: "ember" });
+  assert.equal(unauth.status, 401);
+  assert.equal((await (await post("/api/reward", { token: created.token, skin: "ember" })).json()).error, "not-eligible");
+  assert.equal((await (await post("/api/equip", { token: created.token, skin: "void" })).json()).error, "not-owned");
+  assert.equal((await post("/api/equip", { token: created.token, skin: "default" })).status, 200);
+  assert.equal((await (await post("/api/reward", { token: created.token, skin: "shield" })).json()).error, "invalid-skin");
+  const opponent = store.createProfile("Foe").profile.profileId;
+  store.recordMatch({
+    matchId: "settle-1", winnerProfileId: created.profile.profileId,
+    participants: [created.profile.profileId, opponent], duration: 45,
+  });
+  clock.advance(WEEK_MS + 60000);
+  const claim = await post("/api/reward", { token: created.token, skin: "void" });
+  assert.equal(claim.status, 200);
+  const claimedProfile = (await claim.json()).profile;
+  assert.equal(claimedProfile.rewards.includes("void"), true);
+  assert.equal(claimedProfile.rewardRank, 1);
+  const repeat = await post("/api/reward", { token: created.token, skin: "void" });
+  assert.equal((await repeat.json()).profile.rewards.includes("void"), true);
+  const equipped = await (await post("/api/equip", { token: created.token, skin: "void" })).json();
+  assert.equal(equipped.profile.skin, "void");
+  assert.equal((await (await post("/api/equip", { token: created.token, skin: "ember" })).json()).error, "not-owned");
+  await post("/api/equip", { token: created.token, skin: "void" });
+  assert.equal(store.getProfile(created.profile.profileId).skin, "void");
+});
+
+function mutableClock(start = Date.now()) {
+  const state = { now: start };
+  return Object.assign(() => state.now, { advance: (ms) => { state.now += ms; } });
+}
+
+test("readiness gates start, countdown blocks combat and cancels on unready", async (t) => {
+  const { connect } = await setup(t, { countdownSeconds: 0.3 });
+  const host = await connect();
+  const guest = await connect();
+  const room = await host.request({ type: "create", name: "Host" }, "room");
+  await guest.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  await host.request({ type: "start" }, "error", (message) => message.message === "All players must be ready");
+  await guest.request({ type: "start" }, "error", (message) => message.message === "Only the host can start");
+  const hostReady = await setReady(host);
+  assert.equal(hostReady.players.find((player) => player.id === host.id).ready, true);
+  await setReady(guest);
+  const counting = await host.request({ type: "start" }, "state", (message) => message.phase === "countdown");
+  assert.ok(counting.countdown >= 1);
+  await host.request({ type: "cast", spell: "fireball" }, "error", (message) => message.message === "Player is not fighting");
+  await host.request(input({ forward: 1 }), "error", (message) => message.message === "Player is not fighting");
+  await setReady(guest, false);
+  const cancelled = await host.wait("state", (message) => message.phase === "lobby");
+  assert.equal(cancelled.time, 0);
+  assert.equal(cancelled.countdown, null);
+  await setReady(host);
+  await setReady(guest);
+  const second = await host.request({ type: "start" }, "state", (message) => message.phase === "fight");
+  assert.equal(second.time, 0);
+  guest.send(input({ forward: 1 }));
+  const moving = await guest.wait("state", (message) => message.time >= 0.2);
+  assert.ok(moving.players.find((entry) => entry.id === guest.id).z < 1);
+});
+
+test("authenticate binds profiles, blocks duplicates, id spoofing and awards winners", async (t) => {
+  const clock = mutableClock();
+  const store = createProfileStore({ now: clock });
+  const { game, connect } = await setup(t, { store });
+  const profileA = store.createProfile("Alice");
+  const profileB = store.createProfile("Bob");
+  const clientA = await connect();
+  await clientA.request({ type: "authenticate", token: profileA.token }, "profile");
+  assert.equal(clientA.messages.at(-1).profile.profileId, profileA.profile.profileId);
+  const clientADuplicate = await connect();
+  await clientADuplicate.request({ type: "authenticate", token: profileA.token }, "error", (message) => message.message === "Profile already connected");
+  const clientB = await connect();
+  await clientB.request({ type: "authenticate", token: profileB.token }, "profile");
+  const room = await clientA.request({ type: "create", name: "Host" }, "room");
+  assert.equal(room.players[0].profileId, profileA.profile.profileId);
+  await clientB.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  const badToken = await connect();
+  await badToken.request({ type: "authenticate", token: "forged-forged-forged-forged-forged" }, "error", (message) => message.message === "Invalid token");
+  await setReady(clientA);
+  await setReady(clientB);
+  const countdownState = await clientA.request({ type: "start" }, "state", (message) => message.phase === "countdown");
+  assert.ok(countdownState.countdown === null || countdownState.countdown >= 0);
+  const fightState = await clientA.wait("state", (message) => message.phase === "fight");
+  assert.equal(fightState.players.find((player) => player.id === clientA.id).profileId, profileA.profile.profileId);
+  clientB.send({ type: "cast", spell: "lightning" });
+  const effect = await clientA.wait("effect", (message) => message.spell === "lightning");
+  assert.deepEqual(Object.keys(effect).sort(), ["from", "id", "owner", "spell", "to", "type"]);
+  assert.equal(effect.owner, clientB.id);
+  assert.deepEqual(Object.keys(effect.to).sort(), ["x", "y", "z"]);
+  clientB.send(input({ forward: 1, yaw: Math.PI }));
+  const moved = await clientB.wait("state", (message) => message.time >= 0.2);
+  assert.ok(moved.players.find((entry) => entry.id === clientB.id).z > -17);
+  const matchId = fightState.matchId;
+  clientB.send({ type: "leave" });
+  const ended = await clientA.wait("state", (message) => message.phase === "finished");
+  assert.equal(ended.winner, clientA.id);
+  const finished = await clientA.wait("room", (message) => message.phase === "finished");
+  assert.equal(finished.matchId, matchId);
+  await clientA.disconnect();
+  await eventually(() => store.getLeaderboard(clock()).top20.length === 0);
+  assert.equal(store.getLeaderboard(clock()).meta.community, true);
+});
+
+test("host restart requires fresh readiness and awards flow to the store", async (t) => {
+  const clock = mutableClock();
+  const store = createProfileStore({ now: clock, minMatchSeconds: 0.5 });
+  const { game, connect } = await setup(t, { store });
+  const profile = store.createProfile("Host");
+  const profileB = store.createProfile("Second");
+  const host = await connect();
+  const guest = await connect();
+  await host.request({ type: "authenticate", token: profile.token }, "profile");
+  await guest.request({ type: "authenticate", token: profileB.token }, "profile");
+  const room = await host.request({ type: "create", name: "Host" }, "room");
+  await guest.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  await setReady(host);
+  await setReady(guest);
+  await host.request({ type: "start" }, "state", (message) => message.phase === "countdown");
+  const fightState = await host.wait("state", (message) => message.phase === "fight");
+  host.send(input({ forward: 1 }));
+  await host.wait("state", (message) => message.time >= 0.6);
+  guest.send(input({ forward: -1 }));
+  guest.send({ type: "cast", spell: "fireball" });
+  guest.send({ type: "leave" });
+  await host.wait("state", (message) => message.phase === "finished");
+  clock.advance(WEEK_MS * 2);
+  const board = store.getLeaderboard(clock());
+  assert.deepEqual(board.top20, []);
+  assert.equal(fightState.matchId.length >= 36, true);
+});
+
+test("private room results never reach the leaderboard and meta exposes limitations", async (t) => {
+  const clock = mutableClock();
+  const store = createProfileStore({ now: clock, minMatchSeconds: 0.5 });
+  const { game, connect } = await setup(t, { store });
+  const unauth1 = await connect();
+  const unauth2 = await connect();
+  const room = await unauth1.request({ type: "create", name: "Host" }, "room");
+  await unauth2.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  await setReady(unauth1);
+  await setReady(unauth2);
+  await unauth1.request({ type: "start" }, "state", (message) => message.phase === "countdown");
+  await unauth1.wait("state", (message) => message.phase === "fight");
+  await unauth2.disconnect();
+  await unauth1.wait("state", (message) => message.phase === "finished");
+  await unauth1.disconnect();
+  await eventually(() => game.rooms.size === 0);
+  assert.deepEqual(store.getLeaderboard(clock()).top20, []);
+});
+
+test("CORS allows same-origin and configured origins but never a wildcard", async (t) => {
+  const { game } = await setup(t, { origins: ["https://play.example.com"] });
+  const base = `http://127.0.0.1:${game.server.address().port}`;
+  const denied = await fetch(`${base}/api/leaderboard`, { headers: { origin: "https://evil.example.com" } });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.headers.get("access-control-allow-origin"), null);
+  const configured = await fetch(`${base}/api/leaderboard`, { headers: { origin: "https://play.example.com" } });
+  assert.equal(configured.status, 200);
+  assert.equal(configured.headers.get("access-control-allow-origin"), "https://play.example.com");
+  assert.notEqual(configured.headers.get("access-control-allow-origin"), "*");
+  const noOrigin = await fetch(`${base}/api/leaderboard`);
+  assert.equal(noOrigin.status, 200);
+  const preflight = await fetch(`${base}/api/profile`, { method: "OPTIONS", headers: { origin: "https://play.example.com" } });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), "https://play.example.com");
+  const wsDenied = await new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${game.server.address().port}/ws`, { origin: "https://evil.example.com" });
+    ws.on("error", () => resolve("rejected"));
+    ws.on("open", () => { ws.terminate(); resolve("open"); });
+  });
+  assert.equal(wsDenied, "rejected");
+});
+
+test("API is rate limited per client without exposing tokens", async (t) => {
+  const { game } = await setup(t);
+  const base = `http://127.0.0.1:${game.server.address().port}`;
+  const statuses = [];
+  for (let index = 0; index < 80; index++) {
+    const response = await fetch(`${base}/api/leaderboard`);
+    statuses.push(response.status);
+    if (response.status === 429) break;
+  }
+  assert.equal(statuses.at(-1), 429);
+  const body = await (await fetch(`${base}/api/leaderboard`)).json().catch(() => null);
+  if (body) assert.equal(body.error, "rate-limit");
+});
+
+test("file-backed store recovers profiles and entitlements after a restart", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "warlock-server-"));
+  const dataPath = join(dir, "profiles.sqlite");
+  const stores = [];
+  t.after(async () => {
+    await game1Close;
+    await game2Close;
+    for (const store of stores) store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  let game1Close = Promise.resolve();
+  const first = createGameServer({ port: 0, store: createProfileStore({ dataPath, minMatchSeconds: 0.5 }) });
+  stores.push(first.store);
+  await once(first.server, "listening");
+  const base1 = `http://127.0.0.1:${first.server.address().port}`;
+  const created = await (await fetch(`${base1}/api/profile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Persist" }) })).json();
+  game1Close = first.close();
+  await game1Close;
+  let game2Close = Promise.resolve();
+  const second = createGameServer({ port: 0, store: createProfileStore({ dataPath, minMatchSeconds: 0.5 }) });
+  stores.push(second.store);
+  await once(second.server, "listening");
+  const base2 = `http://127.0.0.1:${second.server.address().port}`;
+  const recoveredResponse = await fetch(`${base2}/api/profile`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: created.token }),
+  });
+  assert.equal(recoveredResponse.status, 200);
+  const recovered = (await recoveredResponse.json()).profile;
+  assert.equal(recovered.profileId, created.profile.profileId);
+  assert.equal(recovered.name, "Persist");
+  const forged = await fetch(`${base2}/api/profile`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: `${created.token.slice(0, -2)}zz` }),
+  });
+  assert.equal(forged.status, 401);
+  game2Close = second.close();
+  await game2Close;
+});
+
+test("same profile cannot occupy two rooms and reconnect is blocked while bound", async (t) => {
+  const clock = mutableClock();
+  const store = createProfileStore({ now: clock });
+  const { connect } = await setup(t, { store });
+  const profile = store.createProfile("Solo");
+  const first = await connect();
+  await first.request({ type: "authenticate", token: profile.token }, "profile");
+  const room = await first.request({ type: "create", name: "Host" }, "room");
+  const second = await connect();
+  await second.request({ type: "authenticate", token: profile.token }, "error", (message) => message.message === "Profile already connected");
+  await first.disconnect();
+  await eventually(() => true, 50);
+  const third = await connect();
+  const rebound = await third.request({ type: "authenticate", token: profile.token }, "profile");
+  assert.equal(rebound.profile.profileId, profile.profile.profileId);
 });

@@ -1,7 +1,7 @@
 import { createServer } from 'vite';
 import { createGameServer } from './server.mjs';
 
-const game = createGameServer();
+const game = createGameServer({ dataPath: 'data/profiles.sqlite' });
 let vite;
 let closing = false;
 async function close() {

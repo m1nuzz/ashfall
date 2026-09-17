@@ -5,6 +5,7 @@ export default defineConfig({
     allowedHosts: ["darwinism-answering-pectin.ngrok-free.dev"],
     proxy: {
       "/ws": { target: "ws://127.0.0.1:3001", ws: true },
+      "/api": { target: "http://127.0.0.1:3001" },
     },
   },
 });

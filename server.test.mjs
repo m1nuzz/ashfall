@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -746,6 +746,25 @@ test("abrupt disconnect keeps the seat and re-authentication resumes the room", 
   replacement.ws.terminate();
   await host.disconnect();
   await eventually(() => game.rooms.size === 0, 4000);
+});
+
+test("static directory serves the production build without path traversal", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "warlock-static-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, "index.html"), "<!doctype html><title>ashfall</title>");
+  writeFileSync(join(dir, "app.js"), "console.log(1)");
+  const { game } = await setup(t, { staticDir: dir });
+  const base = `http://127.0.0.1:${game.server.address().port}`;
+  const root = await fetch(`${base}/`);
+  assert.equal(root.status, 200);
+  assert.match(root.headers.get("content-type"), /text\/html/);
+  assert.match(await root.text(), /ashfall/);
+  const script = await fetch(`${base}/app.js`);
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get("content-type"), /javascript/);
+  assert.equal((await fetch(`${base}/missing.js`)).status, 404);
+  assert.equal((await fetch(`${base}/%2e%2e/server.mjs`)).status, 404);
+  assert.equal((await fetch(`${base}/api/leaderboard`)).status, 200);
 });
 
 test("finished matches expose settlement and winners earn gold and victories", async (t) => {

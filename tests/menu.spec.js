@@ -1,0 +1,44 @@
+import { test, expect } from '@playwright/test';
+import { capture } from './helpers.js';
+
+test('menu, panels, settings and pointer-lock start work without console errors', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  const failed = [];
+  page.on('requestfailed', request => failed.push(request.url()));
+  await page.goto('/');
+  await expect(page.locator('h1')).toContainText('ASH');
+  await capture(page, 'menu');
+  await page.getByRole('button', { name: 'Настройки' }).click();
+  await expect(page.locator('#settings-panel')).toBeVisible();
+  await page.locator('#sensitivity').fill('2.5');
+  await expect(page.locator('#sensitivity-value')).toHaveText('2.500 CS2');
+  const math = await page.evaluate(async () => {
+    const module = await import('/src/settings.js');
+    return module.mouseRadians(1000, 2.5) / (Math.PI / 180);
+  });
+  expect(Math.abs(math - 55)).toBeLessThan(0.001);
+  await page.locator('#quality').selectOption('low');
+  await page.locator('#invert-y').check();
+  await page.reload();
+  await page.getByRole('button', { name: 'Настройки' }).click();
+  await expect(page.locator('#sensitivity-number')).toHaveValue('2.5');
+  await expect(page.locator('#invert-y')).toBeChecked();
+  await expect(page.locator('#quality')).toHaveValue('low');
+  await capture(page, 'settings');
+  await page.locator('[data-close="settings-panel"]').click();
+  await page.getByRole('button', { name: 'Гримуар' }).click();
+  await expect(page.locator('#grimoire-spells article')).toHaveCount(6);
+  await page.locator('[data-close="grimoire-panel"]').click();
+  await page.getByRole('button', { name: 'Авторы и ассеты' }).click();
+  await expect(page.locator('#credits-panel')).toContainText('Poly Haven');
+  await capture(page, 'credits');
+  await page.locator('[data-close="credits-panel"]').click();
+  await page.getByRole('button', { name: /БОЙ С БОТАМИ/ }).click();
+  await page.locator('#hud').waitFor({ state: 'visible', timeout: 15000 });
+  await page.waitForTimeout(700);
+  await capture(page, 'practice-start');
+  expect(errors).toEqual([]);
+  expect(failed.filter(url => !url.includes('devtools'))).toEqual([]);
+});

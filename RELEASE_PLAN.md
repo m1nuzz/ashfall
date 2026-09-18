@@ -62,6 +62,10 @@ Address confirmed failures and rerun affected tests, then run the full regressio
 
 At the end commit and push tested work to origin/main. Return a Russian report with delivered features, actual test commands/results, screenshots/artifact paths, final commit hash and push status, exact clean-install/development/production launch instructions, a verified preview link only if available, and honest limitations requiring external hosting credentials or human hardware/listening/playtesting. Do not wait for the user to reopen OpenCode to do work that can run in the cloud.
 
+### Handoff outcome (2026-09-18)
+
+The OpenHands cloud agent worked 21:35–23:05 UTC on 2026-09-17, then stopped on an OpenRouter model error (404, model removed) and never pushed. Its uncommitted sandbox work was recovered locally through the Cloud API (event log + file endpoints) and merged after review: pointer-lock settle timeout in requestLock, server-authoritative 5-round online tournament with gold/levels/wins shop, reconnect grace with resume, settlement exposure, shield/blink effect broadcasts, spectator mode, premium wizard models with skin palettes, nameplates with disconnect state, profile standing/claimedSkin, Playwright menu/practice suites, eslint + unified npm test. Fixes applied during merge: stale reconnect timer cleanup, buy level guard, duplicate matchId in a store test, practice test race (casts landing on shop cards) and reset-flow expectations. The cloud sandbox was paused again after extraction.
+
 ## Follow-up before a public competitive service
 
 1. Shared deterministic combat rules for practice and multiplayer; prediction/reconciliation and latency testing.

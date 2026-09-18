@@ -110,7 +110,7 @@ test("welcome, create, join, host authorization, fight rejection and exact snaps
   const room = await host.request({ type: "create", name: " Host " }, "room");
   assert.match(room.code, /^[A-Z]{6}$/u);
   assert.deepEqual(room, {
-    type: "room", code: room.code, host: host.id, phase: "lobby", countdown: null, matchId: null, meta: BOARD_META,
+    type: "room", code: room.code, host: host.id, phase: "lobby", round: 0, totalRounds: 5, countdown: null, matchId: null, meta: BOARD_META,
     players: [{ id: host.id, name: "Host", ready: false, profileId: null, skin: "default", nameColor: null, rewardRank: null }],
   });
   await host.request({ type: "start" }, "error", (message) => message.message === "At least two connected players required");
@@ -122,10 +122,10 @@ test("welcome, create, join, host authorization, fight rejection and exact snaps
   assert.equal(state.time, 0);
   assert.equal(state.radius, 40);
   assert.equal(state.winner, null);
-  assert.deepEqual(Object.keys(state).sort(), ["code", "countdown", "matchId", "meta", "phase", "players", "projectiles", "radius", "time", "type", "winner"]);
+  assert.deepEqual(Object.keys(state).sort(), ["code", "countdown", "matchId", "meta", "phase", "players", "projectiles", "radius", "round", "settlement", "time", "totalRounds", "type", "winner"]);
   assert.equal(state.players.length, 2);
   for (const player of state.players) {
-    assert.deepEqual(Object.keys(player).sort(), ["alive", "cooldowns", "damage", "hp", "id", "name", "nameColor", "profileId", "ready", "rewardRank", "shieldUntil", "skin", "x", "y", "yaw", "z"]);
+    assert.deepEqual(Object.keys(player).sort(), ["alive", "connected", "cooldowns", "damage", "gold", "hp", "id", "levels", "name", "nameColor", "profileId", "ready", "rewardRank", "shieldUntil", "skin", "wins", "x", "y", "yaw", "z"]);
     assert.equal(player.hp, 100);
     assert.equal(player.damage, 0);
     assert.equal(player.alive, true);
@@ -206,7 +206,7 @@ test("fireball cooldown, projectile schema, swept hit and preserved knockback", 
   const { host, guest } = await fight(t);
   host.send({ type: "cast", spell: "fireball" });
   const cast = await host.wait("state", (message) => message.projectiles.length === 1);
-  assert.deepEqual(Object.keys(cast.projectiles[0]).sort(), ["id", "spell", "x", "y", "z"]);
+  assert.deepEqual(Object.keys(cast.projectiles[0]).sort(), ["id", "owner", "spell", "x", "y", "z"]);
   assert.equal(cast.projectiles[0].spell, "fireball");
   const deadline = cast.players[0].cooldowns.fireball;
   assert.ok(deadline >= 0.55 && deadline <= cast.time + 0.55);
@@ -395,7 +395,7 @@ test("only /ws upgrades and close is idempotent with active peers", async (t) =>
   assert.equal(game.rooms.size, 0);
 });
 
-function api(game, path, { method = "GET", body, origin } = {}) {
+function _api(game, path, { method = "GET", body, origin } = {}) {
   return fetch(`http://127.0.0.1:${game.server.address().port}${path}`, {
     method, headers: { "content-type": "application/json", ...(origin ? { origin } : {}) },
     body: method === "GET" ? undefined : typeof body === "string" ? body : JSON.stringify(body ?? {}),
@@ -408,7 +408,7 @@ test("profile API creates, recovers, rejects bad tokens and hides token material
   assert.match(created.token, /^[A-Za-z0-9_-]{43}$/u);
   assert.equal(typeof created.profile.profileId, "string");
   assert.equal(created.profile.name, "Wizard");
-  assert.deepEqual(Object.keys(created.profile).sort(), ["name", "nameColor", "profileId", "rewardRank", "rewards", "skin"]);
+  assert.deepEqual(Object.keys(created.profile).sort(), ["claimedSkin", "name", "nameColor", "profileId", "rewardRank", "rewards", "skin", "standing"]);
   assert.ok(!JSON.stringify(created).match(/eyJ|sha|hash/u));
   const recovered = await (await fetch(`http://127.0.0.1:${game.server.address().port}/api/profile`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: created.token, name: "Renamed" }),
@@ -494,7 +494,7 @@ test("readiness gates start, countdown blocks combat and cancels on unready", as
   assert.equal(hostReady.players.find((player) => player.id === host.id).ready, true);
   await setReady(guest);
   const counting = await host.request({ type: "start" }, "state", (message) => message.phase === "countdown");
-  assert.ok(counting.countdown >= 1);
+  assert.equal(counting.countdown, 1);
   await host.request({ type: "cast", spell: "fireball" }, "error", (message) => message.message === "Player is not fighting");
   await host.request(input({ forward: 1 }), "error", (message) => message.message === "Player is not fighting");
   await setReady(guest, false);
@@ -513,7 +513,7 @@ test("readiness gates start, countdown blocks combat and cancels on unready", as
 test("authenticate binds profiles, blocks duplicates, id spoofing and awards winners", async (t) => {
   const clock = mutableClock();
   const store = createProfileStore({ now: clock });
-  const { game, connect } = await setup(t, { store });
+  const { connect } = await setup(t, { store });
   const profileA = store.createProfile("Alice");
   const profileB = store.createProfile("Bob");
   const clientA = await connect();
@@ -556,7 +556,7 @@ test("authenticate binds profiles, blocks duplicates, id spoofing and awards win
 test("host restart requires fresh readiness and awards flow to the store", async (t) => {
   const clock = mutableClock();
   const store = createProfileStore({ now: clock, minMatchSeconds: 0.5 });
-  const { game, connect } = await setup(t, { store });
+  const { connect } = await setup(t, { store });
   const profile = store.createProfile("Host");
   const profileB = store.createProfile("Second");
   const host = await connect();
@@ -581,7 +581,7 @@ test("host restart requires fresh readiness and awards flow to the store", async
   assert.equal(fightState.matchId.length >= 36, true);
 });
 
-test("private room results never reach the leaderboard and meta exposes limitations", async (t) => {
+test("unauthenticated room results never score and metadata exposes limitations", async (t) => {
   const clock = mutableClock();
   const store = createProfileStore({ now: clock, minMatchSeconds: 0.5 });
   const { game, connect } = await setup(t, { store });
@@ -682,7 +682,7 @@ test("same profile cannot occupy two rooms and reconnect is blocked while bound"
   const profile = store.createProfile("Solo");
   const first = await connect();
   await first.request({ type: "authenticate", token: profile.token }, "profile");
-  const room = await first.request({ type: "create", name: "Host" }, "room");
+  const _room = await first.request({ type: "create", name: "Host" }, "room");
   const second = await connect();
   await second.request({ type: "authenticate", token: profile.token }, "error", (message) => message.message === "Profile already connected");
   await first.disconnect();
@@ -690,4 +690,81 @@ test("same profile cannot occupy two rooms and reconnect is blocked while bound"
   const third = await connect();
   const rebound = await third.request({ type: "authenticate", token: profile.token }, "profile");
   assert.equal(rebound.profile.profileId, profile.profile.profileId);
+});
+
+test("server shop sells spell levels for gold and validates phase, readiness and funds", async (t) => {
+  const { connect } = await setup(t);
+  const host = await connect();
+  const guest = await connect();
+  const room = await host.request({ type: "create", name: "Host" }, "room");
+  await guest.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  const bought = await host.request({ type: "buy", spell: "fireball" }, "state",
+    (message) => message.players.find((player) => player.id === host.id)?.levels?.fireball === 2);
+  const buyer = bought.players.find((player) => player.id === host.id);
+  assert.equal(buyer.gold, 0);
+  assert.deepEqual(Object.keys(bought.players.find((player) => player.id === guest.id)?.levels ?? {}), []);
+  await host.request({ type: "buy", spell: "fireball" }, "error", (message) => message.message === "Not enough gold");
+  await host.request({ type: "buy", spell: "nuke" }, "error", (message) => message.message === "Invalid message");
+  await setReady(host);
+  await host.request({ type: "buy", spell: "homing" }, "error", (message) => message.message === "Shop is closed");
+  await setReady(host, false);
+  await setReady(guest);
+  await setReady(host);
+  await host.request({ type: "start" }, "state", (message) => message.phase === "countdown");
+  await host.request({ type: "buy", spell: "homing" }, "error", (message) => message.message === "Shop is closed");
+  const fight = await host.wait("state", (message) => message.phase === "fight");
+  assert.equal(fight.players.find((player) => player.id === host.id)?.levels?.fireball, 2);
+  await host.request({ type: "buy", spell: "homing" }, "error", (message) => message.message === "Shop is closed");
+});
+
+test("abrupt disconnect keeps the seat and re-authentication resumes the room", async (t) => {
+  const clock = mutableClock();
+  const store = createProfileStore({ now: clock });
+  const { game, connect } = await setup(t, { store, reconnectSeconds: 0.3 });
+  const profileA = store.createProfile("Alpha");
+  const profileB = store.createProfile("Beta");
+  const host = await connect();
+  await host.request({ type: "authenticate", token: profileA.token }, "profile");
+  const room = await host.request({ type: "create", name: "Host" }, "room");
+  const guest = await connect();
+  await guest.request({ type: "authenticate", token: profileB.token }, "profile");
+  await guest.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  guest.ws.terminate();
+  const detached = await host.wait("state",
+    (message) => message.players.find((player) => player.id === guest.id)?.connected === false, 0, 4000);
+  assert.equal(detached.players.length, 2);
+  const replacement = await connect();
+  const mark = replacement.messages.length;
+  const profile = await replacement.request({ type: "authenticate", token: profileB.token }, "profile");
+  const welcome = await replacement.wait("welcome", (message) => message.resumed === true, mark);
+  assert.equal(welcome.id, guest.id);
+  assert.equal(profile.resumed, true);
+  assert.equal(profile.profile.profileId, profileB.profile.profileId);
+  const rejoined = await replacement.wait("room", (message) => message.code === room.code);
+  assert.equal(rejoined.players.length, 2);
+  await host.wait("state", (message) => message.players.find((player) => player.id === guest.id)?.connected === true);
+  replacement.ws.terminate();
+  await host.disconnect();
+  await eventually(() => game.rooms.size === 0, 4000);
+});
+
+test("finished matches expose settlement and winners earn gold and victories", async (t) => {
+  const { connect } = await setup(t);
+  const host = await connect();
+  const guest = await connect();
+  const room = await host.request({ type: "create", name: "Host" }, "room");
+  await guest.request({ type: "join", code: room.code, name: "Guest" }, "room");
+  await setReady(host);
+  await setReady(guest);
+  await host.request({ type: "start" }, "state", (message) => message.phase === "countdown");
+  await host.wait("state", (message) => message.phase === "fight");
+  guest.send({ type: "leave" });
+  const ended = await host.wait("state", (message) => message.phase === "finished" && message.settlement !== undefined);
+  assert.equal(ended.winner, host.id);
+  assert.equal(ended.round, 1);
+  const winner = ended.players.find((player) => player.id === host.id);
+  assert.equal(winner.wins, 1);
+  assert.equal(winner.gold, 18);
+  const finished = await host.wait("room", (message) => message.phase === "finished");
+  assert.equal(finished.round, 1);
 });

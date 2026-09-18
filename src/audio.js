@@ -26,7 +26,7 @@ export function createAudio(getVolume, report = () => {}) {
   const variants = new Map();
   const volume = () => clamp(explicitVolume ?? getVolume(), 0, 1);
   function notify(message) {
-    try { report(message); } catch {}
+    try { report(message); } catch { /* status reporting is best-effort */ }
   }
   function updateVolume() {
     if (!master) return;
@@ -142,7 +142,7 @@ export function createAudio(getVolume, report = () => {}) {
         gain.gain.linearRampToValueAtTime(0, now + 0.012);
         source.stop(now + 0.015);
       } catch {
-        try { source.stop(); } catch {}
+        try { source.stop(); } catch { /* voice already ended */ }
       }
     }
     voices.clear();

@@ -103,6 +103,14 @@ export function createProfileStore({ dataPath = ":memory:", now = () => Date.now
       SELECT COUNT(*) AS count FROM awards a JOIN matches m ON m.match_id = a.match_id
       WHERE a.profile_id = ? AND m.week_start = ?
     `),
+    standing: db.prepare(`
+      SELECT rank, points, wins, games FROM (
+        SELECT a.profile_id, SUM(a.points) AS points, SUM(a.is_winner) AS wins, COUNT(*) AS games,
+        ROW_NUMBER() OVER (ORDER BY SUM(a.points) DESC, SUM(a.is_winner) DESC, COUNT(*) ASC, p.created_at ASC, a.profile_id ASC) AS rank
+        FROM awards a JOIN matches m ON m.match_id = a.match_id JOIN profiles p ON p.profile_id = a.profile_id
+        WHERE m.week_start = ? GROUP BY a.profile_id
+      ) WHERE profile_id = ?
+    `),
     top: db.prepare(`
       SELECT a.profile_id, SUM(a.points) AS points, SUM(a.is_winner) AS wins, COUNT(*) AS games
       FROM awards a JOIN profiles p ON p.profile_id = a.profile_id
@@ -133,7 +141,8 @@ export function createProfileStore({ dataPath = ":memory:", now = () => Date.now
     return {
       profileId: row.profile_id, name: row.name, skin: row.equipped_skin,
       nameColor: rank ? SKIN_COLORS[claim?.skin ?? REWARD_SKINS[rank - 1]] : null,
-      rewardRank: rank || null,
+      rewardRank: rank || null, claimedSkin: claim?.skin ?? null,
+      standing: statements.standing.get(weekStart(timestamp), profileId) ?? null,
       rewards: ["default", ...statements.entitlements.all(profileId).map((entry) => entry.skin)],
     };
   }

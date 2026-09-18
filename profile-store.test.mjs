@@ -76,7 +76,7 @@ test("weekly leaderboard ranks by points, wins, games, and earliest profile", (t
   const dave = store.createProfile("Dave").profile.profileId;
   let sequence = 0;
   const play = (winner, loser) => {
-    store.recordMatch({ matchId: `m-${sequence++}`, winnerProfileId: winner, participants: [winner, loser], duration: 45 });
+    store.recordMatch({ matchId: `m-${++sequence}`, winnerProfileId: winner, participants: [winner, loser], duration: 45 });
   };
   play(bob, alice);
   play(bob, carol);
@@ -98,9 +98,8 @@ test("previous-week top3 claim once; rewards never resurrect in later weeks", (t
   const { store, clock } = makeStore(t);
   const alice = store.createProfile("Alice").profile.profileId;
   const bob = store.createProfile("Bob").profile.profileId;
-  let sequence = 0;
-  store.recordMatch({ matchId: `m-${sequence++}`, winnerProfileId: alice, participants: [alice, bob], duration: 45 });
-  store.recordMatch({ matchId: `m-${sequence++}`, winnerProfileId: bob, participants: [alice, bob], duration: 45 });
+  store.recordMatch({ matchId: "m-alice", winnerProfileId: alice, participants: [alice, bob], duration: 45 });
+  store.recordMatch({ matchId: "m-bob", winnerProfileId: bob, participants: [alice, bob], duration: 45 });
   clock.set(BASE + WEEK_MS + 1000);
   assert.equal(store.claimReward(alice, "ember").ok, true);
   assert.deepEqual(store.getProfile(alice).rewards, ["default", "ember"]);

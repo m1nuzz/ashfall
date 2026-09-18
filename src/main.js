@@ -155,8 +155,9 @@ const remoteProjectiles = new Map();
 const multiplayer = createMultiplayer({ onState: receiveOnlineState, onMatch: beginOnlineMatch, onLeave: returnToMenu, onEffect: event => {
   const from = new THREE.Vector3(event.from.x, event.from.y, event.from.z);
   const to = new THREE.Vector3(event.to.x, event.to.y, event.to.z);
-  spawnBolt(from, to);
-  if (event.owner !== onlineId) playAt('lightning', from);
+  if (event.spell === 'lightning') spawnBolt(from, to);
+  else spawnBurst(to, event.spell === 'shield' ? 0x63dcff : 0xa886ff);
+  if (event.owner !== onlineId) playAt(event.spell, from);
 } });
 const costs = { fireball: 5, lightning: 7, homing: 6, meteor: 8, blink: 6, shield: 6 };
 for (const s of [...Object.values(SPELL_DEFS), ...Object.values(UTIL_DEFS)]) {
@@ -215,29 +216,8 @@ for (let i = 0; i < BOT_COUNT; i++) {
   entities.push(bot);
 }
 
-const SKIN_WIZARD_COLORS = { ember: 0xff8a3d, void: 0xa05cff, storm: 0x4dc9ff };
-function wizardColorFor(peer, index) {
-  return SKIN_WIZARD_COLORS[peer.skin] ?? BOT_COLORS[index % BOT_COLORS.length];
-}
-
-const nameplateVector = new THREE.Vector3();
-function updateNameplates() {
-  const width = window.innerWidth, height = window.innerHeight;
-  for (const [peerId, e] of remoteEntities) {
-    const peer = onlineState?.players.find(p => p.id === peerId);
-    if (!peer?.alive || phase !== 'fight') { e.plate.style.display = 'none'; continue; }
-    nameplateVector.copy(e.wiz.group.position);
-    nameplateVector.y += 2.7;
-    nameplateVector.project(camera);
-    if (nameplateVector.z > 1) { e.plate.style.display = 'none'; continue; }
-    e.plate.style.display = 'block';
-    e.plate.style.left = ((nameplateVector.x * 0.5 + 0.5) * width) + 'px';
-    e.plate.style.top = ((-nameplateVector.y * 0.5 + 0.5) * height) + 'px';
-  }
-}
-
 function clearOnlineObjects() {
-  for (const e of remoteEntities.values()) { disposeObject(e.wiz.group); e.plate?.remove(); }
+  for (const e of remoteEntities.values()) { disposeObject(e.wiz.group); e.label.remove(); }
   for (const mesh of remoteProjectiles.values()) disposeObject(mesh);
   remoteEntities.clear();
   remoteProjectiles.clear();
@@ -249,6 +229,7 @@ function returnToMenu() {
   mode = 'bots';
   paused = false;
   onlineState = null;
+  document.getElementById('spectator').hidden = true;
   clearInput();
   document.exitPointerLock();
   clearEffects();
@@ -258,6 +239,7 @@ function returnToMenu() {
   ui.menu.hidden = false;
   ui.pause.hidden = true;
   ui.shop.hidden = true;
+  ui.shopItems.hidden = false;
   ui.hudShow(false);
   ui.lavaWarn.hidden = true;
   hand.visible = false;
@@ -298,7 +280,7 @@ function receiveOnlineState(snapshot, id) {
   const first = !onlineState;
   onlineState = snapshot;
   onlineId = id;
-  if (snapshot.phase === 'countdown') phase = 'online-countdown';
+  if (snapshot.phase !== 'fight' && snapshot.phase !== 'finished') phase = 'online-' + snapshot.phase;
   gameTime = snapshot.time;
   arenaRadius = snapshot.radius;
   arena.scale.setScalar(arenaRadius / ARENA_RADIUS);
@@ -309,7 +291,8 @@ function receiveOnlineState(snapshot, id) {
     player.hp = local.hp;
     player.dmgPts = local.damage;
     player.alive = local.alive;
-    player.cds = local.cooldowns;
+    player.cds = { ...local.cooldowns };
+    for (const spec of [...Object.values(SPELL_DEFS), ...Object.values(UTIL_DEFS)]) spec.level = local.levels?.[spec.id] ?? 1;
     player.shieldUntil = local.shieldUntil;
     if (first) { yaw = local.yaw; player.pos.set(local.x, local.y, local.z); }
   }
@@ -318,33 +301,27 @@ function receiveOnlineState(snapshot, id) {
     if (peer.id === id) continue;
     seen.add(peer.id);
     let e = remoteEntities.get(peer.id);
+    if (e && e.skin !== peer.skin) {
+      disposeObject(e.wiz.group); e.label.remove(); remoteEntities.delete(peer.id); e = null;
+    }
     if (!e) {
-      e = { wiz: createWizard(wizardColorFor(peer, index)), target: new THREE.Vector3(), skin: peer.skin || 'default' };
+      const label = document.createElement('div'); label.className = 'nameplate';
+      document.getElementById('nameplates').append(label);
+      e = { wiz: createWizard(BOT_COLORS[index % BOT_COLORS.length], peer.skin), skin: peer.skin, label, target: new THREE.Vector3() };
       e.wiz.group.position.set(peer.x, peer.y, peer.z);
       scene.add(e.wiz.group);
-      e.plate = document.createElement('div');
-      e.plate.className = 'nameplate';
-      document.getElementById('nameplates').append(e.plate);
       remoteEntities.set(peer.id, e);
-    } else if ((peer.skin || 'default') !== e.skin) {
-      const replacement = createWizard(wizardColorFor(peer, index));
-      replacement.group.position.copy(e.wiz.group.position);
-      replacement.group.rotation.copy(e.wiz.group.rotation);
-      replacement.group.visible = e.wiz.group.visible;
-      scene.remove(e.wiz.group);
-      disposeObject(e.wiz.group);
-      e.wiz = replacement;
-      e.skin = peer.skin || 'default';
     }
-    e.plate.textContent = peer.name;
-    if (peer.nameColor) { e.plate.style.color = peer.nameColor; e.plate.classList.add('champion-name'); }
-    else { e.plate.style.color = ''; e.plate.classList.remove('champion-name'); }
+    e.label.textContent = peer.name + (peer.connected === false ? ' · связь…' : '');
+    e.label.dataset.skin = peer.skin;
+    e.label.style.color = peer.nameColor || '#e8dfd1';
+    e.label.classList.toggle('champion-name', !!peer.nameColor);
     e.target.set(peer.x, peer.y, peer.z);
     e.wiz.group.rotation.y = peer.yaw + Math.PI;
     e.wiz.group.visible = peer.alive;
     e.wiz.shield.visible = peer.shieldUntil > snapshot.time;
   }
-  for (const [key, e] of remoteEntities) if (!seen.has(key)) { disposeObject(e.wiz.group); e.plate?.remove(); remoteEntities.delete(key); }
+  for (const [key, e] of remoteEntities) if (!seen.has(key)) { disposeObject(e.wiz.group); e.label.remove(); remoteEntities.delete(key); }
   const seenProjectiles = new Set();
   for (const p of snapshot.projectiles) {
     seenProjectiles.add(p.id);
@@ -354,14 +331,16 @@ function receiveOnlineState(snapshot, id) {
       mesh = new THREE.Mesh(new THREE.SphereGeometry(p.spell === 'meteor' ? 1.1 : 0.6, 10, 10), new THREE.MeshBasicMaterial({ color: colors[p.spell] || 0xffffff }));
       scene.add(mesh);
       remoteProjectiles.set(p.id, mesh);
-      if (Math.hypot(p.x - player.pos.x, p.z - player.pos.z) > 3) playAt(p.spell, new THREE.Vector3(p.x, p.y, p.z));
+      if (p.owner !== onlineId) playAt(p.spell, new THREE.Vector3(p.x, p.y, p.z));
     }
     mesh.position.set(p.x, p.y, p.z);
   }
-  for (const [key, mesh] of remoteProjectiles) if (!seenProjectiles.has(key)) { disposeObject(mesh); remoteProjectiles.delete(key); }
+  for (const [key, mesh] of remoteProjectiles) if (!seenProjectiles.has(key)) { spawnBurst(mesh.position, mesh.material.color); disposeObject(mesh); remoteProjectiles.delete(key); }
   if (snapshot.phase === 'finished') {
     if (phase !== 'online-finished') sound.play(snapshot.winner === id ? 'victory' : 'hit');
     phase = 'online-finished';
+    clearEffects();
+    document.getElementById('spectator').hidden = true;
     clearInput();
     document.exitPointerLock();
     ui.pause.hidden = true;
@@ -393,11 +372,37 @@ function updateOnline(dt) {
     else player.pos.lerp(target, 1 - Math.exp(-24 * dt));
   }
   for (const e of remoteEntities.values()) e.wiz.group.position.lerp(e.target, 1 - Math.exp(-18 * dt));
-  updateNameplates();
   onlineInputTime += dt;
   if (onlineInputTime >= 0.06) { onlineInputTime = 0; sendOnlineInput(); }
   if (mouseHeld) castOnline('fireball');
-  updateCamera();
+  if (player.alive) updateCamera();
+  else updateSpectator();
+}
+
+let spectatorIndex = 0;
+function updateSpectator() {
+  const living = onlineState?.players.filter(p => p.id !== onlineId && p.alive) ?? [];
+  const target = living[spectatorIndex % Math.max(1, living.length)];
+  const banner = document.getElementById('spectator');
+  banner.hidden = !target;
+  if (!target) return;
+  banner.textContent = `Наблюдение: ${target.name} · Tab — сменить мага · Esc — меню`;
+  camera.position.lerp(new THREE.Vector3(target.x + 4, target.y + 5, target.z + 6), 0.1);
+  camera.lookAt(target.x, target.y + 1, target.z);
+}
+function updateNameplates() {
+  for (const e of remoteEntities.values()) {
+    const position = e.wiz.group.position.clone().add(new THREE.Vector3(0, 2.9, 0)).project(camera);
+    e.label.hidden = phase !== 'fight' || !e.wiz.group.visible || position.z > 1 || position.z < -1;
+    e.label.style.left = `${(position.x * 0.5 + 0.5) * innerWidth}px`;
+    e.label.style.top = `${(-position.y * 0.5 + 0.5) * innerHeight}px`;
+  }
+}
+function spawnBurst(position, color) {
+  if (bolts.length > 40) return;
+  const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 0), new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.65 }));
+  mesh.position.copy(position); scene.add(mesh);
+  bolts.push({ line: mesh, expires: performance.now() + 220 });
 }
 
 function setupRound() {
@@ -532,7 +537,12 @@ function spawnBolt(from, to) {
   const flash = new THREE.PointLight(0x8acaff, 20, 16);
   flash.position.copy(to);
   const group = new THREE.Group();
-  group.add(line, flash);
+  group.add(line);
+  if (settings.quality === 'high' && !matchMedia('(prefers-reduced-motion: reduce)').matches) group.add(flash);
+  for (const i of [6, 12, 18]) {
+    const branch = [points[i], points[i].clone().add(new THREE.Vector3(1, -0.5, 0.6)), points[i].clone().add(new THREE.Vector3(2, -2, 1))];
+    group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(branch), new THREE.LineBasicMaterial({ color: 0x83bfff, transparent: true, opacity: 0.65 })));
+  }
   scene.add(group);
   bolts.push({ line: group, expires: performance.now() + 180 });
 }
@@ -638,13 +648,29 @@ function botAI(e, dt) {
     e.vel.z += (desired.z - e.vel.z) * blend;
   }
 
+  if (gameTime > (e.utilityCd || 0)) {
+    if (edge > arenaRadius - 2 || e.pos.y < -1) {
+      e.pos.addScaledVector(centerPull, Math.min(10, edge)); e.pos.y = 0; e.vel.set(0, 0, 0);
+      e.utilityCd = gameTime + 6; spawnBurst(e.pos, 0xa886ff); playAt('blink', e.pos);
+    } else if (projectiles.some(p => p.owner !== e && p.mesh.position.distanceTo(e.pos) < 7)) {
+      e.shieldUntil = gameTime + 2.8; e.utilityCd = gameTime + 8; playAt('shield', e.pos);
+    }
+  }
   e.fireCd -= dt;
   if (e.fireCd <= 0 && dist < 34) {
     const aim = target.pos.clone().add(new THREE.Vector3(0, 1, 0)).sub(e.pos.clone().add(new THREE.Vector3(0, 1.2, 0))).normalize();
     aim.x += (Math.random() - 0.5) * 0.07;
     aim.z += (Math.random() - 0.5) * 0.07;
     e.fireCd = 0.9 + Math.random() * 1.3;
-    fireProjectile(e, e.pos.clone().setY(1.2), aim, { id: "fireball", dmg: 8, kb: 7, speed: 34, radius: 0.5 });
+    const choice = Math.random();
+    if (choice < 0.15) {
+      const from = e.pos.clone().add(new THREE.Vector3(0, 1.2, 0));
+      spawnBolt(from, target.pos.clone().add(new THREE.Vector3(0, 1, 0)));
+      playAt('lightning', from); damage(target, 6, aim.clone().multiplyScalar(14), e);
+    } else {
+      const id = choice < 0.35 ? 'homing' : choice < 0.48 ? 'meteor' : 'fireball';
+      fireProjectile(e, e.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), aim, { ...SPELL_DEFS[id], level: Math.min(3, STATE.round), speed: id === 'fireball' ? 34 : SPELL_DEFS[id].speed });
+    }
   }
 }
 
@@ -687,7 +713,8 @@ function updateCamera() {
 
 function flashDamage() {
   sound.play('hit');
-  ui.dmgFlash.style.opacity = "0.45";
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  ui.dmgFlash.style.opacity = "0.25";
   setTimeout(() => (ui.dmgFlash.style.opacity = "0"), 120);
 }
 
@@ -767,6 +794,7 @@ const SPELLS_FOR_SHOP = () => [
 function openShop() {
   phase = "shop";
   ui.shop.hidden = false;
+  ui.shopItems.hidden = false;
   ui.hudShow(false);
   ui.shopTitle.textContent = "Раунд " + STATE.round + " из " + TOTAL_ROUNDS;
   ui.shopSubtitle.textContent = "Вложи золото в заклинания перед боем";
@@ -853,7 +881,7 @@ function tick() {
   if (phase === "fight" && !paused && mode === 'bots') {
     gameTime += dt;
     if (mouseHeld) playerShoot(SPELL_DEFS.fireball);
-    arenaRadius = Math.max(8, arenaRadius - STATE.arenaShrink * dt);
+    arenaRadius = Math.max(0, arenaRadius - STATE.arenaShrink * dt);
     arena.scale.setScalar(arenaRadius / ARENA_RADIUS);
     ring.scale.setScalar(arenaRadius / ARENA_RADIUS);
 
@@ -873,8 +901,8 @@ function tick() {
   if (phase === "fight") {
     ui.hp.style.width = Math.max(0, player.hp) + "%";
     ui.hpText.textContent = Math.max(0, player.hp | 0);
-    ui.gold.textContent = mode === 'online' ? 'Без ботов · серверный бой' : "Золото " + STATE.gold;
-    ui.round.textContent = mode === 'online' ? 'Комната ' + (onlineState?.code || '') : "Раунд " + STATE.round + "/" + TOTAL_ROUNDS;
+    ui.gold.textContent = mode === 'online' ? 'Серверный бой · ' + (onlineState?.players.find(p => p.id === onlineId)?.gold ?? 0) + ' зол.' : "Золото " + STATE.gold;
+    ui.round.textContent = mode === 'online' ? 'Раунд ' + (onlineState?.round || 1) + '/5 · ' + (onlineState?.code || '') : "Раунд " + STATE.round + "/" + TOTAL_ROUNDS;
     ui.alive.textContent = "Живых: " + (mode === 'online' ? onlineState?.players.filter(e => e.alive).length || 0 : entities.filter((e) => e.alive).length);
     ui.dmgPts.textContent = "Урон: " + (player.dmgPts | 0);
     ui.arenaSize.textContent = "Арена: " + (arenaRadius | 0) + " м";
@@ -886,7 +914,8 @@ function tick() {
     if (performance.now() > bolts[i].expires) { disposeObject(bolts[i].line); bolts.splice(i, 1); }
   }
   if (phase !== "fight") ui.lavaWarn.hidden = true;
-  hand.visible = phase === "fight";
+  hand.visible = phase === "fight" && player.alive;
+  updateNameplates();
   castPulse = Math.max(0, castPulse - dt * 4);
   hand.position.z = -1.1 + castPulse * 0.2;
   crystal.rotation.y += dt;
@@ -938,11 +967,13 @@ function updateProjectiles(dt) {
       projectiles.splice(i, 1);
     }
   }
+
 }
 
 document.addEventListener("keydown", (ev) => {
   const k = ev.code.replace("Key", "").toLowerCase();
   keys[k] = true;
+  if (ev.code === 'Tab' && mode === 'online' && !player.alive) { ev.preventDefault(); spectatorIndex++; }
   if (ev.code === 'Space' && phase === 'fight' && !paused) ev.preventDefault();
   if (ev.code === 'Escape') {
     const openPanel = document.querySelector('.subpanel:not([hidden])');
@@ -975,6 +1006,10 @@ function pauseGame() {
   document.exitPointerLock();
 }
 
+const lockSettled = request => request && typeof request.then === 'function'
+  ? Promise.race([request, new Promise(resolve => setTimeout(resolve, 1500))])
+  : new Promise(resolve => setTimeout(resolve, 1500));
+
 async function requestLock() {
   void sound.unlock();
   paused = true;
@@ -984,20 +1019,20 @@ async function requestLock() {
   try {
     try {
       const request = renderer.domElement.requestPointerLock({ unadjustedMovement: true });
-      await request;
+      await lockSettled(request);
       rawStatus.textContent = request && typeof request.then === 'function'
         ? 'Raw input активен: стандартная шкала CS2 без ускорения ОС.'
         : 'Браузер не подтверждает raw input: точное совпадение с CS2 не гарантируется.';
     } catch (error) {
       if (error.name !== 'NotSupportedError') throw error;
-      await renderer.domElement.requestPointerLock();
+      await lockSettled(renderer.domElement.requestPointerLock());
       rawStatus.textContent = 'Raw input недоступен. Ускорение и настройки ОС могут менять сенсу.';
     }
   } catch {
-    pauseGame();
     document.getElementById("pause-text").textContent = "Браузер не захватил мышь. Нажми «Продолжить» ещё раз.";
   } finally {
     requestingLock = false;
+    if (document.pointerLockElement !== renderer.domElement) pauseGame();
   }
 }
 
@@ -1058,6 +1093,7 @@ document.addEventListener('click', event => {
   }
 });
 document.getElementById('audio-preview').addEventListener('click', () => sound.preview());
+document.getElementById('shop-menu').addEventListener('click', () => multiplayer.disconnect());
 document.getElementById('exit-game-btn').addEventListener('click', () => multiplayer.disconnect());
 for (const s of [...Object.values(SPELL_DEFS), ...Object.values(UTIL_DEFS)]) {
   const article = document.createElement('article');

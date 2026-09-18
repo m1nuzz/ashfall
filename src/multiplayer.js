@@ -30,6 +30,7 @@ export function createMultiplayer({ onState, onLeave, onMatch, onEffect }) {
     el('start-online').disabled = !host || room.players.length < 2 || !room.players.every(p => p.ready) || !['lobby', 'finished'].includes(room.phase);
     const ready = room.players.find(p => p.id === identity)?.ready;
     el('ready-online').textContent = ready ? 'СНЯТЬ ГОТОВНОСТЬ' : 'Я ГОТОВ';
+    el('ready-online').setAttribute('aria-pressed', String(!!ready));
     el('ready-online').disabled = room.phase === 'fight';
     el('room-countdown').hidden = room.phase !== 'countdown';
     el('countdown-value').textContent = Math.ceil(room.countdown || 0);

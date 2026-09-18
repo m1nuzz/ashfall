@@ -215,8 +215,29 @@ for (let i = 0; i < BOT_COUNT; i++) {
   entities.push(bot);
 }
 
+const SKIN_WIZARD_COLORS = { ember: 0xff8a3d, void: 0xa05cff, storm: 0x4dc9ff };
+function wizardColorFor(peer, index) {
+  return SKIN_WIZARD_COLORS[peer.skin] ?? BOT_COLORS[index % BOT_COLORS.length];
+}
+
+const nameplateVector = new THREE.Vector3();
+function updateNameplates() {
+  const width = window.innerWidth, height = window.innerHeight;
+  for (const [peerId, e] of remoteEntities) {
+    const peer = onlineState?.players.find(p => p.id === peerId);
+    if (!peer?.alive || phase !== 'fight') { e.plate.style.display = 'none'; continue; }
+    nameplateVector.copy(e.wiz.group.position);
+    nameplateVector.y += 2.7;
+    nameplateVector.project(camera);
+    if (nameplateVector.z > 1) { e.plate.style.display = 'none'; continue; }
+    e.plate.style.display = 'block';
+    e.plate.style.left = ((nameplateVector.x * 0.5 + 0.5) * width) + 'px';
+    e.plate.style.top = ((-nameplateVector.y * 0.5 + 0.5) * height) + 'px';
+  }
+}
+
 function clearOnlineObjects() {
-  for (const e of remoteEntities.values()) disposeObject(e.wiz.group);
+  for (const e of remoteEntities.values()) { disposeObject(e.wiz.group); e.plate?.remove(); }
   for (const mesh of remoteProjectiles.values()) disposeObject(mesh);
   remoteEntities.clear();
   remoteProjectiles.clear();
@@ -277,8 +298,7 @@ function receiveOnlineState(snapshot, id) {
   const first = !onlineState;
   onlineState = snapshot;
   onlineId = id;
-  const previousPhase = phase;
-  if (['countdown', 'lobby', 'finished'].includes(snapshot.phase)) phase = snapshot.phase === 'countdown' ? 'online-countdown' : phase === 'online-finished' ? phase : previousPhase;
+  if (snapshot.phase === 'countdown') phase = 'online-countdown';
   gameTime = snapshot.time;
   arenaRadius = snapshot.radius;
   arena.scale.setScalar(arenaRadius / ARENA_RADIUS);
@@ -299,17 +319,32 @@ function receiveOnlineState(snapshot, id) {
     seen.add(peer.id);
     let e = remoteEntities.get(peer.id);
     if (!e) {
-      e = { wiz: createWizard(BOT_COLORS[index % BOT_COLORS.length]), target: new THREE.Vector3() };
+      e = { wiz: createWizard(wizardColorFor(peer, index)), target: new THREE.Vector3(), skin: peer.skin || 'default' };
       e.wiz.group.position.set(peer.x, peer.y, peer.z);
       scene.add(e.wiz.group);
+      e.plate = document.createElement('div');
+      e.plate.className = 'nameplate';
+      document.getElementById('nameplates').append(e.plate);
       remoteEntities.set(peer.id, e);
+    } else if ((peer.skin || 'default') !== e.skin) {
+      const replacement = createWizard(wizardColorFor(peer, index));
+      replacement.group.position.copy(e.wiz.group.position);
+      replacement.group.rotation.copy(e.wiz.group.rotation);
+      replacement.group.visible = e.wiz.group.visible;
+      scene.remove(e.wiz.group);
+      disposeObject(e.wiz.group);
+      e.wiz = replacement;
+      e.skin = peer.skin || 'default';
     }
+    e.plate.textContent = peer.name;
+    if (peer.nameColor) { e.plate.style.color = peer.nameColor; e.plate.classList.add('champion-name'); }
+    else { e.plate.style.color = ''; e.plate.classList.remove('champion-name'); }
     e.target.set(peer.x, peer.y, peer.z);
     e.wiz.group.rotation.y = peer.yaw + Math.PI;
     e.wiz.group.visible = peer.alive;
     e.wiz.shield.visible = peer.shieldUntil > snapshot.time;
   }
-  for (const [key, e] of remoteEntities) if (!seen.has(key)) { disposeObject(e.wiz.group); remoteEntities.delete(key); }
+  for (const [key, e] of remoteEntities) if (!seen.has(key)) { disposeObject(e.wiz.group); e.plate?.remove(); remoteEntities.delete(key); }
   const seenProjectiles = new Set();
   for (const p of snapshot.projectiles) {
     seenProjectiles.add(p.id);
@@ -358,6 +393,7 @@ function updateOnline(dt) {
     else player.pos.lerp(target, 1 - Math.exp(-24 * dt));
   }
   for (const e of remoteEntities.values()) e.wiz.group.position.lerp(e.target, 1 - Math.exp(-18 * dt));
+  updateNameplates();
   onlineInputTime += dt;
   if (onlineInputTime >= 0.06) { onlineInputTime = 0; sendOnlineInput(); }
   if (mouseHeld) castOnline('fireball');
@@ -498,7 +534,7 @@ function spawnBolt(from, to) {
   const group = new THREE.Group();
   group.add(line, flash);
   scene.add(group);
-  bolts.push({ line: group, born: gameTime, expires: performance.now() + 180 });
+  bolts.push({ line: group, expires: performance.now() + 180 });
 }
 
 function hitscan(from, dir) {
@@ -900,12 +936,6 @@ function updateProjectiles(dt) {
     if (hit || now - p.born > 4) {
       disposeObject(p.mesh);
       projectiles.splice(i, 1);
-    }
-  }
-  for (let i = bolts.length - 1; i >= 0; i--) {
-    if (now - bolts[i].born > 0.25) {
-      disposeObject(bolts[i].line);
-      bolts.splice(i, 1);
     }
   }
 }

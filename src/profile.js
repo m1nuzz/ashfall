@@ -86,6 +86,7 @@ export function mountProfile(onIdentityChange) {
   el('copy-recovery').addEventListener('click', run(async () => { if (!token) throw Error('Сначала создай профиль.'); await navigator.clipboard.writeText(token); el('profile-status').textContent = 'Секретный код скопирован. Храни его отдельно.'; }));
   el('import-profile').addEventListener('click', run(async () => {
     const value = el('import-code').value.trim();
+    if (!value) throw Error('Вставь код восстановления из поля выше.');
     const result = await api('profile', { token: value });
     onIdentityChange(); remember(value); profile = result.profile; el('import-code').value = ''; el('recovery-code').hidden = true; paint(); await refresh();
   }));
